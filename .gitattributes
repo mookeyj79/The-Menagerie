@@ -1,0 +1,6 @@
+# Scripts and hooks run on Linux hosts and in CI: always LF.
+*.sh text eol=lf
+*.shlib text eol=lf
+*.sh.j2 text eol=lf
+.githooks/* text eol=lf
+hooks/* text eol=lf

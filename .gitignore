@@ -1,0 +1,25 @@
+# Ignored set (see GLOSSARY.md). Adding one of these paths needs `git add -f`,
+# and the gate fails if any of them is tracked.
+
+# Superseded revisions
+**/OLD/
+
+# Generated DR copy of Ansible/ and Terraform/
+Disaster_Recovery/DR_Dir/
+
+# Vault dumps and secrets scratch folder
+Homelab Scripts/vault_backup.json
+Homelab Scripts/vault_secrets.json
+Homelab Scripts/Secrets/
+
+# Router backups
+Router Configs/Backups/
+
+# age private keys
+*keys.txt
+
+# Terraform state, plans and provider cache
+**/.terraform/
+terraform.tfstate
+terraform.tfstate.*
+tfplan
