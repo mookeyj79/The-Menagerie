@@ -4,6 +4,7 @@
     layers.py gitleaks-report <label> <report.json>
     layers.py confcrypt <tree> <list>   confcrypt check over managed files
     layers.py sops <tree> <list>        SOPS metadata check over governed files
+    layers.py review <tree> <list>      identifying details for manual review (never fails)
 
 <tree> is a materialized copy of the index; <list> holds NUL-separated paths
 relative to it (the files to check). Exit 1 on any finding.
@@ -166,11 +167,73 @@ def sops_layer(tree, rels):
     return 1 if failed else 0
 
 
+# ---- identifying-details review (reported, never failing) -----------------
+
+LAB_DOMAIN = "mikewashere.lan"
+RESOLVERS = {"1.1.1.1", "9.9.9.9"}
+EMAIL_RX = re.compile(r"[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)")
+IP_RX = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?!\d|\.\d)")
+MAC_RX = re.compile(
+    r"(?<![0-9A-Fa-f:.-])(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}(?![0-9A-Fa-f:-])"
+    r"|(?<![0-9A-Fa-f.])[0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4}\.[0-9A-Fa-f]{4}(?![0-9A-Fa-f.])"
+)
+
+
+def _line_kinds(line):
+    """Kinds of identifying detail on one line (values are never returned)."""
+    import ipaddress
+
+    kinds = []
+    if any(not m.group(1).lower().endswith(LAB_DOMAIN) for m in EMAIL_RX.finditer(line)):
+        kinds.append("email")
+    for m in IP_RX.finditer(line):
+        try:
+            ip = ipaddress.IPv4Address(m.group(0))
+        except ValueError:
+            continue
+        if ip.is_global and m.group(0) not in RESOLVERS:
+            kinds.append("public-ip")
+            break
+    if MAC_RX.search(line):
+        kinds.append("mac")
+    return kinds
+
+
+def review_layer(tree, rels):
+    import confcrypt as cc
+
+    rules = _sops_rules(tree)
+    for rel in rels:
+        if _governing_rule(rules, rel) is not None:
+            continue  # SOPS-governed: encrypted path
+        full = os.path.join(tree, rel)
+        cfg = _find_config(tree, rel)
+        if cfg is not None:
+            try:
+                cc.pick_dialect(full, None, cc.load_config(cfg)[1], cfg)
+                continue  # confcrypt-managed: encrypted path (the check layer covers it)
+            except cc.ConfcryptError:
+                pass
+        try:
+            with open(full, "rb") as f:
+                data = f.read()
+        except OSError:
+            continue
+        if b"\0" in data:
+            continue
+        for n, line in enumerate(data.decode("utf-8", "replace").splitlines(), 1):
+            if "REDACTED" in line or "confcrypt v2" in line:
+                continue
+            for kind in _line_kinds(line):
+                print(f"gate: review: {rel}:{n}: {kind} (identifying detail, not blocking)")
+    return 0
+
+
 def main(argv):
     if len(argv) == 4 and argv[1] == "gitleaks-report":
         return gitleaks_report(argv[2], argv[3])
-    if len(argv) == 4 and argv[1] in ("confcrypt", "sops"):
-        fn = confcrypt_layer if argv[1] == "confcrypt" else sops_layer
+    if len(argv) == 4 and argv[1] in ("confcrypt", "sops", "review"):
+        fn = {"confcrypt": confcrypt_layer, "sops": sops_layer, "review": review_layer}[argv[1]]
         return fn(argv[2], read_list(argv[3]))
     print(__doc__, file=sys.stderr)
     return 2
