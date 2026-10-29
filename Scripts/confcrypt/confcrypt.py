@@ -28,14 +28,21 @@ Usage:
                           [--in-place [--backup] | -o OUT]
     confcrypt.py decrypt <file> [--config P] [--dialect D] [--identity P]
                           [--in-place [--backup] | -o OUT]
+    confcrypt.py edit <file> [--config P] [--sops-config P] [--dialect D] [--identity P]
+    confcrypt.py rekey <file> [--config P] [--sops-config P] [--dialect D] [--identity P]
+                          [--in-place [--backup] | -o OUT]
+    confcrypt.py encrypt <file> --dry-run   (reports file:line and rule only)
 """
 import argparse
 import base64
 import fnmatch
 import os
 import re
+import shlex
 import shutil
+import subprocess
 import sys
+import tempfile
 
 import pyrage
 import yaml
@@ -251,7 +258,7 @@ def load_identities(cli_identity, cfg):
 
 # ------------------------------------------------------------------ core --
 
-def encrypt_text(text, dialect, recipients):
+def encrypt_text(text, dialect, recipients, reuse=None):
     """Return (new_text, protected_count)."""
     lines = split_lines(text)
     default_eol = next((e for _, e in lines if e), "\n")
@@ -273,7 +280,10 @@ def encrypt_text(text, dialect, recipients):
         if rule is None:
             out.append(body + eol)
         else:
-            blob = b64e(pyrage.encrypt(body.encode("utf-8"), recipients))
+            # reuse: {original line: [blob, ...]} from `edit`, so unchanged lines
+            # keep their blob (consumed once per occurrence) and diffs stay quiet.
+            old = (reuse or {}).get(body)
+            blob = old.pop(0) if old else b64e(pyrage.encrypt(body.encode("utf-8"), recipients))
             out.append(f"{dialect.comment} {META_TAG} {blob}{eol or default_eol}")
             out.append(rule.dummy + eol)
             count += 1
@@ -313,6 +323,20 @@ def decrypt_text(text, dialect, identities):
 
 # -------------------------------------------------------------- commands --
 
+def existing_blobs(text, dialect, identities):
+    """Map each decrypted original line to its blobs, in file order."""
+    found = {}
+    for body, _ in split_lines(text):
+        m = dialect.meta_re.match(body)
+        if m:
+            try:
+                original = pyrage.decrypt(b64d(m.group(1)), identities).decode("utf-8")
+            except Exception:
+                continue  # decrypt_text reports undecryptable blobs
+            found.setdefault(original, []).append(m.group(1))
+    return found
+
+
 def write_output(text, args):
     data = text.encode("utf-8")
     if args.in_place:
@@ -335,8 +359,31 @@ def prepare(args):
     return cfg, dialect
 
 
+def dry_run_report(text, dialect, path):
+    """Yield 'file:line: rule N (regex)' for each line encrypt would protect.
+    Never includes line content."""
+    lines = split_lines(text)
+    i = 0
+    while i < len(lines):
+        body, _ = lines[i]
+        if dialect.meta_re.match(body):
+            i += 2
+            continue
+        rule = dialect.rule_for(body)
+        if rule is not None:
+            n = dialect.rules.index(rule) + 1
+            yield f"{path}:{i + 1}: rule {n} ({rule.regex.pattern})"
+        i += 1
+
+
 def cmd_encrypt(args):
     cfg, dialect = prepare(args)
+    if args.dry_run:
+        found = list(dry_run_report(read_text(args.file), dialect, args.file))
+        for line in found:
+            print(line)
+        print(f"Would protect {len(found)} line(s).", file=sys.stderr)
+        return
     recipients = load_recipients(args.sops_config, args.file)
     text, count = encrypt_text(read_text(args.file), dialect, recipients)
     write_output(text, args)
@@ -349,6 +396,67 @@ def cmd_decrypt(args):
     text, count = decrypt_text(read_text(args.file), dialect, identities)
     write_output(text, args)
     print(f"Restored {count} line(s).", file=sys.stderr)
+
+
+# ------------------------------------------------------------ edit command --
+
+def run_editor(path):
+    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+    if not editor:
+        raise ConfcryptError("Set $EDITOR (or $VISUAL) to use edit")
+    cmd = shlex.split(editor, posix=True) + [path]
+    try:
+        rc = subprocess.call(cmd)
+    except OSError as e:
+        raise ConfcryptError(f"cannot run editor: {e.strerror or e}")
+    if rc != 0:
+        raise ConfcryptError(f"editor exited with status {rc}; file left unchanged")
+
+
+def cmd_edit(args):
+    cfg, dialect = prepare(args)
+    recipients = load_recipients(args.sops_config, args.file)
+    identities = load_identities(args.identity, cfg)
+    original = read_text(args.file)
+    plain, _ = decrypt_text(original, dialect, identities)
+    reuse = existing_blobs(original, dialect, identities)
+    suffix = os.path.splitext(args.file)[1]
+    fd, tmp = tempfile.mkstemp(prefix="confcrypt-", suffix=suffix)  # created 0600
+    try:
+        try:
+            os.chmod(tmp, 0o600)
+        except OSError:
+            pass
+        with os.fdopen(fd, "wb") as f:
+            f.write(plain.encode("utf-8"))
+        run_editor(tmp)
+        edited = read_text(tmp)
+    finally:
+        try:
+            os.remove(tmp)
+        except FileNotFoundError:
+            pass
+    if edited == plain:
+        print("No changes.", file=sys.stderr)
+        return
+    text, count = encrypt_text(edited, dialect, recipients, reuse=reuse)
+    with open(args.file, "wb") as f:
+        f.write(text.encode("utf-8"))
+    print(f"Saved; {count} protected line(s).", file=sys.stderr)
+
+
+# ---------------------------------------------------------- rekey command --
+
+def cmd_rekey(args):
+    """Decrypt every blob and re-encrypt to the current .sops.yaml recipients.
+    The only operation that rewrites every blob."""
+    cfg, dialect = prepare(args)
+    recipients = load_recipients(args.sops_config, args.file)
+    identities = load_identities(args.identity, cfg)
+    plain, _ = decrypt_text(read_text(args.file), dialect, identities)
+    text, count = encrypt_text(plain, dialect, recipients)
+    write_output(text, args)
+    print(f"Rekeyed {count} line(s).", file=sys.stderr)
 
 
 # ----------------------------------------------------------------- check --
@@ -434,12 +542,28 @@ def main(argv=None):
     p = sub.add_parser("encrypt")
     common(p)
     p.add_argument("--sops-config", help="path to .sops.yaml (default: nearest above the file)")
+    p.add_argument("--dry-run", action="store_true",
+                   help="report file:line and rule of lines that would be protected; write nothing")
     p.set_defaults(func=cmd_encrypt)
 
     p = sub.add_parser("decrypt")
     common(p)
     p.add_argument("--identity", help="age identity file path")
     p.set_defaults(func=cmd_decrypt)
+
+    p = sub.add_parser("rekey", help="re-encrypt every blob to the current recipients")
+    common(p)
+    p.add_argument("--sops-config", help="path to .sops.yaml (default: nearest above the file)")
+    p.add_argument("--identity", help="age identity file path")
+    p.set_defaults(func=cmd_rekey)
+
+    p = sub.add_parser("edit",help="decrypt to an owner-only temp file, run $EDITOR, re-encrypt in place")
+    p.add_argument("file")
+    p.add_argument("--config")
+    p.add_argument("--dialect")
+    p.add_argument("--sops-config")
+    p.add_argument("--identity", help="age identity file path")
+    p.set_defaults(func=cmd_edit)
 
     p = sub.add_parser("check", help="key-less: fail if any protected line is not an Encrypted line")
     p.add_argument("files", nargs="+")
