@@ -23,3 +23,7 @@ Router Configs/Backups/
 terraform.tfstate
 terraform.tfstate.*
 tfplan
+
+# Python caches
+__pycache__/
+.pytest_cache/
