@@ -1,0 +1,94 @@
+# gitleaks configuration for the scanning gate (Scripts/gate/gate.sh).
+#
+# Default rules stay on; the custom rules close the gaps the audit found.
+# Reviewed false positives are recorded either with an inline `gitleaks:allow`
+# on the line or as a commented path entry under [[allowlists]] below. There
+# is no .gitleaksignore (its line-number fingerprints go stale).
+
+title = "The Menagerie gate"
+
+[extend]
+useDefault = true
+
+# ---- custom rules (Go RE2: no lookaheads) -------------------------------
+# Values must not start with `<`, `$`, `{`, quote or `#` so placeholders such as
+# <PLACEHOLDER>, ${VAR} and templated values pass. confcrypt dummy lines are
+# allowed by the global allowlist at the bottom.
+
+[[rules]]
+id = "cipassword"
+description = "Proxmox cloud-init password"
+regex = '''(?i)\bcipassword["']?\s*[:=]\s*["']?([^\s"'<>${}#][^\s"']{2,})'''
+secretGroup = 1
+keywords = ["cipassword"]
+[[rules.allowlists]]
+regexTarget = "secret"
+regexes = ['''^(var|local|data|module)\.''']
+
+[[rules]]
+id = "routeros-password"
+description = "RouterOS password= argument with a literal value"
+regex = '''(?i)\bpassword="?([^\s"'<>${}#][^\s"']*)'''
+secretGroup = 1
+keywords = ["password="]
+
+[[rules]]
+id = "routeros-psk"
+description = "RouterOS / Wi-Fi pre-shared key, passphrase or routing auth-key"
+regex = '''(?i)\b(?:pre-shared-key|passphrase|auth-key|private-key)="?([^\s"'<>${}#][^\s"']*)'''
+secretGroup = 1
+keywords = ["pre-shared-key", "passphrase", "auth-key", "private-key"]
+
+[[rules]]
+id = "cisco-secret-hash"
+description = "Cisco 'secret <type> <hash>' or 'password <type> <hash>'"
+regex = '''(?i)\b(?:secret|password)\s+[0-9]\s+(\S{4,})'''
+secretGroup = 1
+keywords = ["secret", "password"]
+
+[[rules]]
+id = "discord-webhook"
+description = "Discord webhook URL"
+regex = '''https://(?:ptb\.|canary\.)?discord(?:app)?\.com/api/webhooks/[0-9]{17,20}/[A-Za-z0-9_-]{20,}'''
+keywords = ["discord"]
+
+[[rules]]
+id = "pushover-key"
+description = "Pushover application token or user key"
+regex = '''(?i)pushover[\w ."'-]{0,30}[:=]\s*["']?([a-z0-9]{30})\b'''
+secretGroup = 1
+keywords = ["pushover"]
+
+[[rules]]
+id = "password-not-placeholder"
+description = "password-like assignment whose value is not a placeholder"
+regex = '''(?i)(?:password|passwd|pwd|secret|token|psk|passphrase)["']?\s*[:=]\s*["']?([^\s"'<>$\{\}#][^\s"']{3,})'''
+secretGroup = 1
+keywords = ["password", "passwd", "pwd", "secret", "token", "psk", "passphrase"]
+[[rules.allowlists]]
+regexTarget = "secret"
+regexes = [
+  '''(?i)^(changeme|example|null|none|true|false|redacted)$''',
+  '''^(var|local|data|module|lookup)[.(]''',
+]
+
+# ---- global allowlist ----------------------------------------------------
+[[allowlists]]
+description = "confcrypt dummy lines and metadata lines (encrypted lines)"
+regexTarget = "line"
+regexes = [
+  # dummy lines all carry the REDACTED token as a whole word
+  '''(?:^|[\s=:'"])REDACTED['"]?(?:\s|$)''',
+  # metadata line: <comment> confcrypt v2 <base64 age blob>
+  '''^\s*[#!]\s*confcrypt v2 [A-Za-z0-9+/=_-]+\s*$''',
+]
+
+[[allowlists]]
+description = "SOPS-encrypted values (the SOPS layer of the gate checks governed files)"
+regexTarget = "secret"
+regexes = ['''^ENC\[AES256_GCM,data:[A-Za-z0-9+/=]+,iv:''']
+
+# Reviewed path exceptions: one commented entry each.
+[[allowlists]]
+description = "confcrypt rule definitions: comments quote example hash shapes, dummies are inert"
+paths = ['''^Router Configs/\.confcrypt\.yml$''']
