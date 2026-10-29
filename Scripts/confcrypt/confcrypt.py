@@ -459,6 +459,73 @@ def cmd_rekey(args):
     print(f"Rekeyed {count} line(s).", file=sys.stderr)
 
 
+# ----------------------------------------------------------------- check --
+# Key-less verification (no recipients, no identity). Findings carry only
+# line numbers and reasons, never line contents.
+
+IGNORE_MARKER = "confcrypt:ignore"
+AGE_MAGIC = b"age-encryption.org/"
+
+
+def _valid_blob(blob):
+    try:
+        return b64d(blob).startswith(AGE_MAGIC)
+    except Exception:
+        return False
+
+
+def check_text(text, dialect):
+    """Return a list of (line_number, reason); empty means the text passes."""
+    lines = split_lines(text)
+    problems = []
+    stub = dialect.comment + " confcrypt"
+    i = 0
+    while i < len(lines):
+        body = lines[i][0]
+        n = i + 1
+        if IGNORE_MARKER in body:
+            i += 1
+            continue
+        m = dialect.meta_re.match(body)
+        if m or body.startswith(stub):
+            if not m or not _valid_blob(m.group(1)):
+                problems.append((n, "malformed metadata line"))
+                i += 1
+            elif i + 1 >= len(lines):
+                problems.append((n, "metadata line at end of file has no dummy below"))
+                i += 1
+            elif not dialect.is_dummy(lines[i + 1][0]):
+                problems.append((n, "metadata line has no rule dummy below"))
+                i += 1
+            else:
+                i += 2
+            continue
+        if dialect.rule_for(body):
+            problems.append((n, "protected line is not an Encrypted line"))
+        elif dialect.tripwire and dialect.tripwire.search(body):
+            problems.append((n, "tripwire hit not covered by any rule"))
+        i += 1
+    return problems
+
+
+def cmd_check(args):
+    failed = False
+    for path in args.files:
+        try:
+            config_path = find_config(args.config, path)
+            _, dialects = load_config(config_path)
+            dialect = pick_dialect(path, args.dialect, dialects, config_path)
+            problems = check_text(read_text(path), dialect)
+        except ConfcryptError as e:
+            print(f"{path}: error: {e}", file=sys.stderr)
+            failed = True
+            continue
+        for n, reason in problems:
+            print(f"{path}:{n}: {reason}", file=sys.stderr)
+        failed = failed or bool(problems)
+    return 1 if failed else 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -498,13 +565,18 @@ def main(argv=None):
     p.add_argument("--identity", help="age identity file path")
     p.set_defaults(func=cmd_edit)
 
+    p = sub.add_parser("check", help="key-less: fail if any protected line is not an Encrypted line")
+    p.add_argument("files", nargs="+")
+    p.add_argument("--config", help="path to .confcrypt.yml (default: nearest above each file)")
+    p.add_argument("--dialect", help="override dialect selection")
+    p.set_defaults(func=cmd_check)
+
     args = ap.parse_args(argv)
     try:
-        args.func(args)
+        return args.func(args) or 0
     except ConfcryptError as e:
         print(f"confcrypt: error: {e}", file=sys.stderr)
         return 1
-    return 0
 
 
 if __name__ == "__main__":
