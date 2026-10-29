@@ -1,57 +1,115 @@
-# .confcrypt.yml
+# .confcrypt.yml  (confcrypt v2, whole-line)
 #
-# Resolved the same way SOPS resolves .sops.yaml: starting from the
-# directory that CONTAINS the file you're encrypting/decrypting (not your
-# shell's cwd), confcrypt walks upward looking for .confcrypt.yml, using
-# the first one it finds. Drop this file in whatever directory holds your
-# router configs and it's picked up automatically no matter where you run
-# the command from. ~/.confcrypt.yml is only used as a last resort if
-# nothing turns up in the tree. --config always overrides both.
+# Resolved like .sops.yaml: starting from the directory that CONTAINS the
+# file being processed, confcrypt walks upward and uses the first
+# .confcrypt.yml it finds (~/.confcrypt.yml is a last resort, --config wins).
 #
-# identity   : path to your age identity (private key) file. Optional here —
-#              also resolved from $SOPS_AGE_KEY_FILE, or --identity, before
-#              falling back to ~/.sops/keys.txt. Never put a raw key here.
-identity: ~/.sops/keys.txt
+# Recipients are NOT listed here. They are read from the nearest .sops.yaml
+# (every age recipient in its creation_rules), so SOPS and confcrypt cannot
+# drift apart.
+#
+# identity : optional path to an age identity (private key) file used for
+#            decrypt. Also resolved from --identity, $SOPS_AGE_KEY_FILE, then
+#            ~/.sops/keys.txt. Never put a raw key here.
+#
+# filetypes: one entry per dialect.
+#   comment  : comment syntax the target device ignores. A protected line is
+#              committed as   <comment> confcrypt v2 <age blob>
+#              followed by its dummy line.
+#   files    : optional globs relative to this file; a glob match beats the
+#              file extension when picking the dialect.
+#   rules    : list of {regex, dummy}. A line matching `regex` (re.search) is
+#              hidden WHOLE and replaced by `dummy`. First matching rule wins,
+#              so put specific secret rules before the MAC rule. `dummy` must
+#              match its own `regex` (checked at load) so a dummy is never a
+#              hole in the scan; "already encrypted" means a metadata line
+#              directly above an exact dummy.
+#   tripwire : optional broad regex that flags suspicious lines no rule
+#              covers (used by `check`).
+#
+# Write regexes narrowly: a protected line disappears whole from diffs.
+# Rules marked SPECULATIVE are not exercised by any file audited so far.
 
-# recipients : extra age1... PUBLIC keys to encrypt to, in addition to the
-#              one derived from `identity` above. Every value gets wrapped
-#              for every recipient here, so any ONE of these private keys is
-#              enough to decrypt. Put a backup key you store offline here —
-#              this is the actual fix for "lost my only copy of the key."
-recipients: []
-#  - age1exampleyourbackupkeyhere...
-
-# filetypes  : keyed by file extension (no dot). `comment` must be a comment
-#              syntax the target device genuinely ignores, so an un-decrypted
-#              file doesn't break if it's ever pasted/imported as-is.
-#              Each pattern needs exactly ONE capture group: the span that
-#              gets swapped for <PLACEHOLDER>. Scope regexes to the specific
-#              command/line they belong to (e.g. require "/user add" on the
-#              same line) — RouterOS reuses generic keys like name= and
-#              password= everywhere, and an unscoped pattern will happily
-#              "encrypt" VLAN names, DHCP server names, etc.
 filetypes:
   rsc:
     comment: "#"
-    patterns:
-      # /user add name=admin group=full password=Sup3rSecret
-      - placeholder: USER
-        regex: '/user add.*?name="?([^"\s]+)"?'
-      - placeholder: PASSWORD
-        regex: '/user add.*?password="?([^"\s]+)"?'
-      # /routing/ospf/interface-template add ... auth-key=MyOspfKey
-      - placeholder: HASH
-        regex: 'auth-key="?([^"\s]+)"?'
+    tripwire: '(?i)\b(password|passphrase|secret|private-key|pre-shared-key|auth-key|psk)\s*='
+    rules:
+      # /user add name=admin group=full password=...
+      - regex: '^\s*/user add\b.*\bpassword='
+        dummy: '/user add name=REDACTED group=REDACTED password=REDACTED'
+      # /routing/ospf/interface-template add ... auth-key=...
+      - regex: '\bauth-key='
+        dummy: '/routing/ospf/interface-template add auth-key=REDACTED'
+      # Wi-Fi pre-shared keys (security profiles, wifi security, wireless).
+      - regex: '\b(wpa2?-)?pre-shared-key='
+        dummy: '/interface/wifi/security add pre-shared-key=REDACTED'
+      # Wi-Fi / certificate passphrases.
+      - regex: '\bpassphrase='
+        dummy: '/interface/wifi/security add passphrase=REDACTED'
+      # /snmp community add name=<community>  (the community name is the secret)
+      - regex: '^\s*/snmp community\b.*\bname='
+        dummy: '/snmp community add name=REDACTED'
+      # SPECULATIVE: PPP secrets.
+      - regex: '^\s*/ppp secret\b.*\bpassword='
+        dummy: '/ppp secret add name=REDACTED password=REDACTED'
+      # SPECULATIVE: WireGuard private keys.
+      - regex: '\bprivate-key='
+        dummy: '/interface/wireguard add private-key=REDACTED'
+      # SPECULATIVE: IPsec identity secrets.
+      - regex: '^\s*/ip ipsec identity\b.*\bsecret='
+        dummy: '/ip ipsec identity add secret=REDACTED'
+      # SPECULATIVE: RADIUS shared secrets.
+      - regex: '^\s*/radius\b.*\bsecret='
+        dummy: '/radius add secret=REDACTED'
+      # SPECULATIVE: e-mail tool password.
+      - regex: '^\s*/tool e-mail\b.*\bpassword='
+        dummy: '/tool e-mail set password=REDACTED'
+      # Every MAC address (device identifiers). Last: a line holding a
+      # secret AND a MAC gets the secret dummy.
+      - regex: '\b(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b'
+        dummy: '# REDACTED 00:00:00:00:00:00'
 
   ios:
     comment: "!"
-    patterns:
-      # enable secret 9 $9$...   /   username wonka secret 9 $9$...
-      - placeholder: HASH
-        regex: 'secret 9 "?([^"\s]+)"?'
+    tripwire: '(?i)\b(secret|password|key-string|key-hash|community|md5|pre-shared-key|private-key)\b'
+    rules:
+      # enable secret 9 $9$...   /   enable password 7 ...
+      - regex: '^\s*enable\s+(secret|password)\b'
+        dummy: 'enable secret 9 REDACTED'
+      # username wonka ... secret 9 $9$...   (also `password 7`)
+      - regex: '^\s*username\s+\S+.*\b(secret|password)\b'
+        dummy: 'username REDACTED secret 9 REDACTED'
+      # snmp-server community <string> RO|RW
+      - regex: '^\s*snmp-server\s+community\b'
+        dummy: 'snmp-server community REDACTED RO'
+      # key chains
+      - regex: '^\s*key-string\b'
+        dummy: 'key-string REDACTED'
       # ip ssh pubkey-chain / username wonka / key-hash ssh-rsa AAAA...
-      - placeholder: HASH
-        regex: 'key-hash ssh-rsa "?([^"\s]+)"?'
+      - regex: '^\s*key-hash\b'
+        dummy: 'key-hash ssh-rsa REDACTED'
       # ip ospf message-digest-key 1 md5 7 0834058A0B1C
-      - placeholder: HASH
-        regex: 'md5 7 "?([^"\s]+)"?'
+      - regex: '\bmd5\s+7\s+\S'
+        dummy: 'ip ospf message-digest-key 1 md5 7 REDACTED'
+      # line vty / console:  password 7 0822455D0A16
+      - regex: '^\s*password\s+\d\s+\S'
+        dummy: 'password 7 REDACTED'
+      # SPECULATIVE: crypto isakmp pre-shared keys.
+      - regex: '^\s*crypto isakmp key\b'
+        dummy: 'crypto isakmp key REDACTED address 0.0.0.0'
+      # SPECULATIVE: TACACS+/RADIUS keys.
+      - regex: '^\s*(tacacs-server|radius-server)\s+.*\bkey\b'
+        dummy: 'tacacs-server key 7 REDACTED'
+      # Every MAC address: colon, dash and Cisco dotted forms.
+      - regex: '(?i)\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b|\b[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4}\b'
+        dummy: '! REDACTED 0000.0000.0000'
+
+  wifi:
+    comment: "#"
+    files:
+      - "WiFi's.txt"
+    rules:
+      # Everything in the Wi-Fi notes file: SSIDs, PSKs, the license key.
+      - regex: '^.+$'
+        dummy: 'REDACTED'
