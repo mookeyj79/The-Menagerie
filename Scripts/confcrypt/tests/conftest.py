@@ -50,9 +50,10 @@ class Workspace:
         p.write_bytes(data)
         return p
 
-    def run(self, *args, key=None, check=False):
+    def run(self, *args, key=None, check=False, env=None):
         key = key or self.daily
-        env = {"SOPS_AGE_KEY_FILE": str(key.path), "PATH": "", "SYSTEMROOT": "C:\\Windows"}
+        base = {"SOPS_AGE_KEY_FILE": str(key.path), "PATH": "", "SYSTEMROOT": "C:\\Windows"}
+        env = {**base, **(env or {})}
         proc = subprocess.run(
             [sys.executable, str(CONFCRYPT), *map(str, args)],
             capture_output=True, env=env, cwd=self.root,
