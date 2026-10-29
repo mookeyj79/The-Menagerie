@@ -10,6 +10,8 @@
 #   b. confcrypt check over confcrypt-managed files
 #   c. SOPS metadata check over SOPS-governed files
 #   d. --all only: no Ignored-set path may be tracked
+#   e. identifying details (emails, public IPs, MACs outside encrypted paths)
+#      are reported for manual review and never fail the gate
 #
 # Fails closed when gitleaks, sops or python is missing. Override the commands
 # with GATE_GITLEAKS, GATE_SOPS and GATE_PYTHON. Findings are reported as
@@ -72,6 +74,14 @@ run_gitleaks() { # label, report-name, gitleaks args...
   fi
 }
 
+# gitleaks silently honours a .gitleaksignore at the repo root, but its
+# line-number fingerprints go stale. Reviewed exceptions live in .gitleaks.toml
+# (commented path entry) or inline `gitleaks:allow` only, so the file is refused.
+if [ -e "$ROOT/.gitleaksignore" ]; then
+  echo "gate: .gitleaksignore is not allowed: record reviewed false positives in .gitleaks.toml or with an inline gitleaks:allow" >&2
+  note_fail
+fi
+
 if [ "$MODE" = "--staged" ]; then
   run_gitleaks staged staged git --staged "$ROOT"
 else
@@ -92,6 +102,8 @@ else
 fi
 "$PY" "$SCRIPT_DIR/layers.py" confcrypt "$TREE" "$TMP/files" >&2 || note_fail
 "$PY" "$SCRIPT_DIR/layers.py" sops "$TREE" "$TMP/files" >&2 || note_fail
+# identifying details: reported for manual review, never failing
+"$PY" "$SCRIPT_DIR/layers.py" review "$TREE" "$TMP/files" >&2 || true
 
 # ---- layer d (--all): no Ignored-set path may be tracked ------------------
 if [ "$MODE" = "--all" ]; then

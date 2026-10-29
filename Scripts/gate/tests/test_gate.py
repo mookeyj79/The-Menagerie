@@ -1,7 +1,11 @@
 """Seam 1: run the real gate against temp git repos and assert outcomes."""
+import os
+import shutil
+import subprocess
+
 import pytest
 
-from conftest import ROUTER_DIR, rnd
+from conftest import CONFCRYPT, GATE_DIR, REPO_ROOT, ROUTER_DIR, rnd, sh_exe
 
 
 def test_clean_tree_passes_in_both_modes(repo):
@@ -46,3 +50,118 @@ def test_audited_plaintext_credential_fails_and_is_never_printed(repo, mode, nam
     assert path in r.text
     assert value not in r.text
     assert value.lower() not in r.text.lower()
+
+
+# ---- identifying details: reported for review, never blocking -------------
+
+def _mk(repo, mode, path, text):
+    repo.write(path, text)
+    if mode == "--all":
+        repo.commit()
+    else:
+        repo.stage_all()
+
+
+@pytest.mark.parametrize("mode", ["--staged", "--all"])
+def test_stray_email_is_reported_but_does_not_fail(repo, mode):
+    who = "u" + rnd(8).lower()
+    _mk(repo, mode, "docs/contact.md", f"mail {who}@example.org for access\n")
+    r = repo.gate(mode)
+    assert r.code == 0, r.text
+    assert "review" in r.text and "docs/contact.md:1" in r.text
+    assert who not in r.text
+
+
+@pytest.mark.parametrize("mode", ["--staged", "--all"])
+def test_public_ip_is_reported_but_resolvers_and_private_ranges_are_not(repo, mode):
+    _mk(repo, mode, "docs/net.md",
+        "dns 1.1.1.1 and 9.9.9.9\n"
+        "lan 10.1.2.3 172.16.5.5 192.168.1.1 127.0.0.1 0.0.0.0 255.255.255.0\n"
+        "stray 203.0.113.9 is documentation\n"
+        "stray 8.8.4.4 here\n")
+    r = repo.gate(mode)
+    assert r.code == 0, r.text
+    assert "docs/net.md:4" in r.text
+    for line in (1, 2, 3):
+        assert f"docs/net.md:{line}" not in r.text
+    assert "8.8.4.4" not in r.text
+
+
+@pytest.mark.parametrize("mode", ["--staged", "--all"])
+def test_lab_domain_is_not_flagged(repo, mode):
+    _mk(repo, mode, "docs/hosts.md", "vault1.mikewashere.lan\nadmin@mikewashere.lan\n")
+    r = repo.gate(mode)
+    assert r.code == 0, r.text
+    assert "docs/hosts.md" not in r.text
+
+
+@pytest.mark.parametrize("mode", ["--staged", "--all"])
+def test_mac_outside_router_configs_is_reported_but_does_not_fail(repo, mode):
+    _mk(repo, mode, "docs/inventory.md", "nic aa:bb:cc:00:11:22\n")
+    r = repo.gate(mode)
+    assert r.code == 0, r.text
+    assert "review" in r.text and "docs/inventory.md:1" in r.text
+    assert "aa:bb:cc:00:11:22" not in r.text.lower()
+
+
+@pytest.mark.parametrize("mode", ["--staged", "--all"])
+def test_plaintext_mac_in_router_config_fails(repo, mode):
+    _mk(repo, mode, f"{ROUTER_DIR}/R9.rsc", "/interface ethernet set ether1 mac-address=AA:BB:CC:00:11:22\n")
+    r = repo.gate(mode)
+    assert r.code != 0
+    assert "R9.rsc:1" in r.text
+    assert "aa:bb:cc:00:11:22" not in r.text.lower()
+
+
+def test_encrypted_router_config_mac_is_not_reported(repo):
+    repo.write(f"{ROUTER_DIR}/R9.rsc", "/interface ethernet set ether1 mac-address=AA:BB:CC:00:11:22\n")
+    repo.confcrypt_encrypt(f"{ROUTER_DIR}/R9.rsc")
+    repo.commit()
+    r = repo.gate("--all")
+    assert r.code == 0, r.text
+    assert "review" not in r.text
+
+
+# ---- reviewed false positives --------------------------------------------
+
+@pytest.mark.parametrize("mode", ["--staged", "--all"])
+def test_inline_allow_passes_and_other_lines_still_fail(repo, mode):
+    v = rnd(24)
+    _mk(repo, mode, "docs/example.txt", f"/user add name=a group=full password={v} # gitleaks:allow\n")
+    r = repo.gate(mode)
+    assert r.code == 0, r.text
+    repo.write("docs/other.txt", f"/user add name=a group=full password={rnd(24)}\n")
+    repo.stage_all()
+    assert repo.gate("--staged").code != 0
+
+
+def test_commented_path_allowlist_entry_passes(repo, tmp_path):
+    gate_copy = tmp_path / "gatecopy"
+    shutil.copytree(GATE_DIR, gate_copy / "Scripts" / "gate", ignore=shutil.ignore_patterns("tests", "__pycache__"))
+    shutil.copytree(CONFCRYPT.parent, gate_copy / "Scripts" / "confcrypt", ignore=shutil.ignore_patterns("tests", "__pycache__"))
+    cfg = (REPO_ROOT / ".gitleaks.toml").read_text()
+    cfg += (
+        "\n# reviewed: fixture docs quote fake credential shapes\n"
+        "[[allowlists]]\n"
+        'description = "test fixture docs"\n'
+        "paths = ['''^docs/example[.]txt$''']\n"
+    )
+    (gate_copy / ".gitleaks.toml").write_text(cfg)
+    repo.write("docs/example.txt", f"/user add name=a group=full password={rnd(24)}\n")
+    repo.commit()
+    assert repo.gate("--all").code != 0  # the real config has no such entry
+    e = dict(os.environ)
+    p = subprocess.run([sh_exe(), str(gate_copy / "Scripts" / "gate" / "gate.sh"), "--all"],
+                       cwd=repo.root, capture_output=True, env=e)
+    assert p.returncode == 0, p.stderr.decode(errors="replace")
+
+
+def test_gitleaksignore_file_is_not_honoured(repo):
+    repo.write("docs/example.txt", f"/user add name=a group=full password={rnd(24)}\n")
+    repo.commit()
+    commit = repo.git("rev-parse", "HEAD").strip()
+    repo.write(".gitleaksignore",
+               f"docs/example.txt:routeros-password:1\n{commit}:docs/example.txt:routeros-password:1\n"
+               f"{commit}:docs/example.txt:password-not-placeholder:1\ndocs/example.txt:password-not-placeholder:1\n")
+    repo.commit()
+    assert repo.gate("--all").code != 0
