@@ -1,0 +1,57 @@
+# .confcrypt.yml
+#
+# Resolved the same way SOPS resolves .sops.yaml: starting from the
+# directory that CONTAINS the file you're encrypting/decrypting (not your
+# shell's cwd), confcrypt walks upward looking for .confcrypt.yml, using
+# the first one it finds. Drop this file in whatever directory holds your
+# router configs and it's picked up automatically no matter where you run
+# the command from. ~/.confcrypt.yml is only used as a last resort if
+# nothing turns up in the tree. --config always overrides both.
+#
+# identity   : path to your age identity (private key) file. Optional here —
+#              also resolved from $SOPS_AGE_KEY_FILE, or --identity, before
+#              falling back to ~/.sops/keys.txt. Never put a raw key here.
+identity: ~/.sops/keys.txt
+
+# recipients : extra age1... PUBLIC keys to encrypt to, in addition to the
+#              one derived from `identity` above. Every value gets wrapped
+#              for every recipient here, so any ONE of these private keys is
+#              enough to decrypt. Put a backup key you store offline here —
+#              this is the actual fix for "lost my only copy of the key."
+recipients: []
+#  - age1exampleyourbackupkeyhere...
+
+# filetypes  : keyed by file extension (no dot). `comment` must be a comment
+#              syntax the target device genuinely ignores, so an un-decrypted
+#              file doesn't break if it's ever pasted/imported as-is.
+#              Each pattern needs exactly ONE capture group: the span that
+#              gets swapped for <PLACEHOLDER>. Scope regexes to the specific
+#              command/line they belong to (e.g. require "/user add" on the
+#              same line) — RouterOS reuses generic keys like name= and
+#              password= everywhere, and an unscoped pattern will happily
+#              "encrypt" VLAN names, DHCP server names, etc.
+filetypes:
+  rsc:
+    comment: "#"
+    patterns:
+      # /user add name=admin group=full password=Sup3rSecret
+      - placeholder: USER
+        regex: '/user add.*?name="?([^"\s]+)"?'
+      - placeholder: PASSWORD
+        regex: '/user add.*?password="?([^"\s]+)"?'
+      # /routing/ospf/interface-template add ... auth-key=MyOspfKey
+      - placeholder: HASH
+        regex: 'auth-key="?([^"\s]+)"?'
+
+  ios:
+    comment: "!"
+    patterns:
+      # enable secret 9 $9$...   /   username wonka secret 9 $9$...
+      - placeholder: HASH
+        regex: 'secret 9 "?([^"\s]+)"?'
+      # ip ssh pubkey-chain / username wonka / key-hash ssh-rsa AAAA...
+      - placeholder: HASH
+        regex: 'key-hash ssh-rsa "?([^"\s]+)"?'
+      # ip ospf message-digest-key 1 md5 7 0834058A0B1C
+      - placeholder: HASH
+        regex: 'md5 7 "?([^"\s]+)"?'
