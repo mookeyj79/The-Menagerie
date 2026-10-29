@@ -92,3 +92,11 @@ regexes = ['''^ENC\[AES256_GCM,data:[A-Za-z0-9+/=]+,iv:''']
 [[allowlists]]
 description = "confcrypt rule definitions: comments quote example hash shapes, dummies are inert"
 paths = ['''^Router Configs/\.confcrypt\.yml$''']
+
+# Reviewed: every secret-shaped line in this file is an obviously fake fixture
+# (FAKE*, "fake pw") that feeds confcrypt's rule-coverage test. A path entry is
+# used rather than inline gitleaks:allow because earlier commits that already
+# hold these lines are scanned by `gate --all` and cannot be rewritten.
+[[allowlists]]
+description = "confcrypt rule-coverage test: fake password/PSK fixture lines"
+paths = ['''^Scripts/confcrypt/tests/test_rule_coverage\.py$''']
