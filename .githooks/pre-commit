@@ -1,0 +1,4 @@
+#!/bin/sh
+# Thin pre-commit hook: all logic lives in the gate.
+root=$(git rev-parse --show-toplevel) || exit 1
+exec sh "$root/Scripts/gate/gate.sh" --staged
