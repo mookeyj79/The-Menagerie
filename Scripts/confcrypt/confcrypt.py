@@ -55,6 +55,10 @@ class ConfcryptError(Exception):
     """A user-facing error. Messages never contain protected values."""
 
 
+class NoDialectError(ConfcryptError):
+    """No dialect in the config applies to the file: it is not confcrypt-managed."""
+
+
 # ---------------------------------------------------------------- helpers --
 
 def b64e(data: bytes) -> str:
@@ -89,14 +93,16 @@ def read_text(path):
             raise ConfcryptError(f"{path} is not valid UTF-8")
 
 
-def walk_up(start_dir, name):
+def walk_up(start_dir, name, root=None):
+    """Nearest `name` in start_dir or above it; never above `root` when given."""
     d = os.path.abspath(start_dir)
+    root = os.path.abspath(root) if root else None
     while True:
         cand = os.path.join(d, name)
         if os.path.isfile(cand):
             return cand
         parent = os.path.dirname(d)
-        if parent == d:
+        if parent == d or d == root:
             return None
         d = parent
 
@@ -165,13 +171,16 @@ def load_config(path):
     return cfg, dialects
 
 
-def find_config(cli_path, target):
+def find_config(cli_path, target, root=None):
+    """--config, else the nearest .confcrypt.yml above target, else ~/.confcrypt.yml.
+    With `root`, the search stops at that directory and returns None instead of
+    falling back to the home config (the gate checks a bounded tree copy)."""
     if cli_path:
         if not os.path.isfile(cli_path):
             raise ConfcryptError(f"--config file not found: {cli_path}")
         return cli_path
-    found = walk_up(os.path.dirname(os.path.abspath(target)), ".confcrypt.yml")
-    if found:
+    found = walk_up(os.path.dirname(os.path.abspath(target)), ".confcrypt.yml", root)
+    if found or root:
         return found
     home = os.path.expanduser("~/.confcrypt.yml")
     if os.path.isfile(home):
@@ -192,7 +201,7 @@ def pick_dialect(target, cli_dialect, dialects, config_path):
     ext = os.path.splitext(target)[1].lstrip(".").lower()
     if ext in dialects:
         return dialects[ext]
-    raise ConfcryptError(
+    raise NoDialectError(
         f"No dialect for {os.path.basename(target)} (known: {', '.join(sorted(dialects))}); use --dialect"
     )
 
@@ -258,23 +267,41 @@ def load_identities(cli_identity, cfg):
 
 # ------------------------------------------------------------------ core --
 
+def walk(lines, dialect):
+    """Yield (i, m, below) over split lines. For a metadata line, m is its match
+    and below is the (body, eol) of the line under it (None at end of file);
+    that line is consumed with it and not yielded on its own. For any other
+    line, m and below are None."""
+    i = 0
+    while i < len(lines):
+        m = dialect.meta_re.match(lines[i][0])
+        if m:
+            yield i, m, lines[i + 1] if i + 1 < len(lines) else None
+            i += 2
+        else:
+            yield i, None, None
+            i += 1
+
+
+def _require_below(i, below):
+    if below is None:
+        raise ConfcryptError(f"line {i + 1}: metadata line at end of file")
+    return below
+
+
 def encrypt_text(text, dialect, recipients, reuse=None):
     """Return (new_text, protected_count)."""
     lines = split_lines(text)
     default_eol = next((e for _, e in lines if e), "\n")
-    out, count, i = [], 0, 0
-    while i < len(lines):
+    out, count = [], 0
+    for i, m, below in walk(lines, dialect):
         body, eol = lines[i]
-        m = dialect.meta_re.match(body)
         if m:
-            if i + 1 >= len(lines):
-                raise ConfcryptError(f"line {i + 1}: metadata line at end of file")
-            nbody, _ = lines[i + 1]
+            nbody, neol = _require_below(i, below)
             if not dialect.is_dummy(nbody):
                 raise ConfcryptError(f"line {i + 2}: line under metadata is not a rule dummy")
             out.append(body + eol)
-            out.append(lines[i + 1][0] + lines[i + 1][1])
-            i += 2
+            out.append(nbody + neol)
             continue
         rule = dialect.rule_for(body)
         if rule is None:
@@ -287,28 +314,22 @@ def encrypt_text(text, dialect, recipients, reuse=None):
             out.append(f"{dialect.comment} {META_TAG} {blob}{eol or default_eol}")
             out.append(rule.dummy + eol)
             count += 1
-        i += 1
     return "".join(out), count
 
 
 def decrypt_text(text, dialect, identities):
     """Return (new_text, restored_count)."""
     lines = split_lines(text)
-    out, count, i = [], 0, 0
-    while i < len(lines):
-        body, eol = lines[i]
-        m = dialect.meta_re.match(body)
+    out, count = [], 0
+    for i, m, below in walk(lines, dialect):
         if not m:
-            out.append(body + eol)
-            i += 1
+            out.append(lines[i][0] + lines[i][1])
             continue
-        if i + 1 >= len(lines):
-            raise ConfcryptError(f"line {i + 1}: metadata line at end of file")
+        dbody, deol = _require_below(i, below)
         try:
             original = pyrage.decrypt(b64d(m.group(1)), identities).decode("utf-8")
         except Exception:
             raise ConfcryptError(f"line {i + 1}: cannot decrypt metadata line (wrong key or corrupt blob)")
-        dbody, deol = lines[i + 1]
         rule = dialect.rule_for(original)
         ok = dbody == rule.dummy if rule else dialect.is_dummy(dbody)
         if not ok:
@@ -317,7 +338,6 @@ def decrypt_text(text, dialect, identities):
             )
         out.append(original + deol)
         count += 1
-        i += 2
     return "".join(out), count
 
 
@@ -326,8 +346,7 @@ def decrypt_text(text, dialect, identities):
 def existing_blobs(text, dialect, identities):
     """Map each decrypted original line to its blobs, in file order."""
     found = {}
-    for body, _ in split_lines(text):
-        m = dialect.meta_re.match(body)
+    for _, m, _ in walk(split_lines(text), dialect):
         if m:
             try:
                 original = pyrage.decrypt(b64d(m.group(1)), identities).decode("utf-8")
@@ -352,32 +371,26 @@ def write_output(text, args):
         sys.stdout.buffer.flush()
 
 
-def prepare(args):
-    config_path = find_config(args.config, args.file)
+def prepare(path, config=None, dialect=None):
+    """(config dict, dialect) for one file, from --config/--dialect or discovery."""
+    config_path = find_config(config, path)
     cfg, dialects = load_config(config_path)
-    dialect = pick_dialect(args.file, args.dialect, dialects, config_path)
-    return cfg, dialect
+    return cfg, pick_dialect(path, dialect, dialects, config_path)
 
 
 def dry_run_report(text, dialect, path):
     """Yield 'file:line: rule N (regex)' for each line encrypt would protect.
     Never includes line content."""
     lines = split_lines(text)
-    i = 0
-    while i < len(lines):
-        body, _ = lines[i]
-        if dialect.meta_re.match(body):
-            i += 2
-            continue
-        rule = dialect.rule_for(body)
+    for i, m, _ in walk(lines, dialect):
+        rule = None if m else dialect.rule_for(lines[i][0])
         if rule is not None:
             n = dialect.rules.index(rule) + 1
             yield f"{path}:{i + 1}: rule {n} ({rule.regex.pattern})"
-        i += 1
 
 
 def cmd_encrypt(args):
-    cfg, dialect = prepare(args)
+    cfg, dialect = prepare(args.file, args.config, args.dialect)
     if args.dry_run:
         found = list(dry_run_report(read_text(args.file), dialect, args.file))
         for line in found:
@@ -391,7 +404,7 @@ def cmd_encrypt(args):
 
 
 def cmd_decrypt(args):
-    cfg, dialect = prepare(args)
+    cfg, dialect = prepare(args.file, args.config, args.dialect)
     identities = load_identities(args.identity, cfg)
     text, count = decrypt_text(read_text(args.file), dialect, identities)
     write_output(text, args)
@@ -414,7 +427,7 @@ def run_editor(path):
 
 
 def cmd_edit(args):
-    cfg, dialect = prepare(args)
+    cfg, dialect = prepare(args.file, args.config, args.dialect)
     recipients = load_recipients(args.sops_config, args.file)
     identities = load_identities(args.identity, cfg)
     original = read_text(args.file)
@@ -450,7 +463,7 @@ def cmd_edit(args):
 def cmd_rekey(args):
     """Decrypt every blob and re-encrypt to the current .sops.yaml recipients.
     The only operation that rewrites every blob."""
-    cfg, dialect = prepare(args)
+    cfg, dialect = prepare(args.file, args.config, args.dialect)
     recipients = load_recipients(args.sops_config, args.file)
     identities = load_identities(args.identity, cfg)
     plain, _ = decrypt_text(read_text(args.file), dialect, identities)
@@ -475,7 +488,11 @@ def _valid_blob(blob):
 
 
 def check_text(text, dialect):
-    """Return a list of (line_number, reason); empty means the text passes."""
+    """Return a list of (line_number, reason); empty means the text passes.
+
+    Walks lines itself rather than with walk(): it must also catch metadata
+    stubs that meta_re rejects, honour the ignore marker, and step over only
+    the metadata line of a malformed pair so the line below is checked too."""
     lines = split_lines(text)
     problems = []
     stub = dialect.comment + " confcrypt"
@@ -512,9 +529,7 @@ def cmd_check(args):
     failed = False
     for path in args.files:
         try:
-            config_path = find_config(args.config, path)
-            _, dialects = load_config(config_path)
-            dialect = pick_dialect(path, args.dialect, dialects, config_path)
+            _, dialect = prepare(path, args.config, args.dialect)
             problems = check_text(read_text(path), dialect)
         except ConfcryptError as e:
             print(f"{path}: error: {e}", file=sys.stderr)
