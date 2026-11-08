@@ -24,7 +24,7 @@
 
 **Gate**: The set of checks (secret scan, confcrypt check, SOPS-encrypted check) that must pass before a change can enter the repo. It runs in the git hook for staged changes and in CI for everything.
 
-**Ignored set**: The paths gitignored because they are generated copies, secret dumps, key files or state files: every `OLD/` folder, `Disaster_Recovery/DR_Dir/`, the Vault dumps, `Homelab Scripts/Secrets/`, `Router Configs/Backups/`, age key files, Terraform state and plans. CI fails if any of them is tracked.
+**Ignored set**: The paths gitignored because they are generated copies, secret dumps, key files or state files: every `OLD/` folder, `Disaster_Recovery/DR_Dir/`, the Vault dumps, `Homelab Scripts/Secrets/`, `Router Configs/Backups/`, age key files, and Terraform state, plans, crash logs and `.tfvars` variable files. CI fails if any of them is tracked.
 
 **SOPS-governed file**: A file whose path matches a rule in `.sops.yaml`. It must carry SOPS metadata before it can be committed.
 

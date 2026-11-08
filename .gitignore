@@ -18,11 +18,17 @@ Router Configs/Backups/
 # age private keys
 *keys.txt
 
-# Terraform state, plans and provider cache
+# Terraform state, plans, crash logs, variable values and provider cache.
+# The repo holds config only, never the state of the running lab.
 **/.terraform/
-terraform.tfstate
-terraform.tfstate.*
+*.tfstate
+*.tfstate.*
 tfplan
+*.tfplan
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
 
 # Python caches
 __pycache__/
