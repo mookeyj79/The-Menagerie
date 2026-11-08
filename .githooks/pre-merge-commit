@@ -1,0 +1,5 @@
+#!/bin/sh
+# Thin pre-merge-commit hook: a merge commit is checked like any other commit.
+# All logic lives in the gate.
+root=$(git rev-parse --show-toplevel) || exit 1
+exec sh "$root/Scripts/gate/gate.sh" --staged

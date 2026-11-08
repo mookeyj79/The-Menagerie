@@ -1,9 +1,9 @@
 # The-Menagerie
 My Homelab Structure and Build Files
 
-## Install the pre-commit hook
+## Install the git hooks
 
-Every commit is checked by the scanning gate (`Scripts/gate/gate.sh`, see [ADR 0003](docs/adr/0003-scanning-gate.md)). The hook lives in the tracked `.githooks/` directory. Git does not turn it on by itself, so run this once in each fresh clone:
+Every commit is checked by the scanning gate (`Scripts/gate/gate.sh`, see [ADR 0003](docs/adr/0003-scanning-gate.md)). The hooks live in the tracked `.githooks/` directory. Git does not turn them on by itself, so run this once in each fresh clone:
 
 ```sh
 # Linux / macOS / Git Bash
@@ -15,7 +15,7 @@ sh Scripts/install-hooks.sh
 .\Scripts\install-hooks.ps1
 ```
 
-Both scripts set `core.hooksPath` to `.githooks`. From then on, the pre-commit hook runs `gate.sh --staged` on what you are about to commit.
+Both scripts set `core.hooksPath` to `.githooks`. From then on, two thin hooks run `gate.sh --staged` on what you are about to commit: `pre-commit` for ordinary commits and `pre-merge-commit` for merge commits.
 
 The gate fails closed if a tool it needs is missing. Put these on `PATH` first:
 
@@ -23,7 +23,7 @@ The gate fails closed if a tool it needs is missing. Put these on `PATH` first:
 - `sops`
 - Python 3 with `pyyaml` and `pyrage`
 
-The hook can be skipped with `--no-verify`, but that only defers the failure. The GitHub Action (`.github/workflows/gate.yml`) runs `gate.sh --all` over the full history and tree, and the `main` branch ruleset requires that check to pass. To run the same check locally, use `sh Scripts/gate/gate.sh --all`.
+The hooks can be skipped with `--no-verify`, but that only defers the failure. The GitHub Action (`.github/workflows/gate.yml`) runs `gate.sh --all` over the full history and tree, and the `main` branch ruleset requires that check to pass. To run the same check locally, use `sh Scripts/gate/gate.sh --all`.
 
 ## Restore the DR key for a rebuild
 
