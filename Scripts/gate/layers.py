@@ -205,7 +205,8 @@ def _line_kinds(line):
         if ip.is_global and m.group(0) not in RESOLVERS:
             kinds.append("public-ip")
             break
-    if MAC_RX.search(line):
+    # the all-zero MAC is the placeholder confcrypt dummies use, not a device
+    if any(set(re.sub(r"[:.-]", "", m.group(0))) != {"0"} for m in MAC_RX.finditer(line)):
         kinds.append("mac")
     return kinds
 
@@ -233,8 +234,6 @@ def review_layer(tree, rels):
         if b"\0" in data:
             continue
         for n, line in enumerate(data.decode("utf-8", "replace").splitlines(), 1):
-            if "REDACTED" in line or "confcrypt v2" in line:
-                continue
             for kind in _line_kinds(line):
                 print(f"gate: review: {rel}:{n}: {kind} (identifying detail, not blocking)")
     return 0
