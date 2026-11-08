@@ -2,8 +2,9 @@
 # Scanning gate. One entry point for the git pre-commit hook and CI.
 #
 #   gate.sh --staged   scan what is staged (hook)
-#   gate.sh --all      scan the full history, the tracked tree and the Ignored
-#                      set (CI)
+#   gate.sh --all      scan the full history, the current tree (index plus
+#                      uncommitted working-tree changes to tracked files) and
+#                      the Ignored set (CI)
 #
 # Layers (all run, all must pass):
 #   a. gitleaks (default rules + custom rules in .gitleaks.toml)
@@ -82,19 +83,34 @@ if [ -e "$ROOT/.gitleaksignore" ]; then
   note_fail
 fi
 
+# A copy of the index: layers b, c and e check staged content (not the working
+# tree), and config files are found as committed.
+TREE="$TMP/tree"
+git -c core.autocrlf=false checkout-index -a --prefix="$TREE/" || fail_closed "cannot materialize the index"
+mkdir -p "$TREE" || fail_closed "cannot create scratch directory"
+
 if [ "$MODE" = "--staged" ]; then
   run_gitleaks staged staged git --staged "$ROOT"
 else
   if git rev-parse -q --verify HEAD >/dev/null 2>&1; then
     run_gitleaks history history git --log-opts="--all" "$ROOT"
   fi
+  # History alone misses what is not committed yet: also scan the index copy
+  # and the working-tree version of every tracked file that differs from it.
+  # gitleaks runs from inside each copy so reported paths are repo-relative.
+  cd "$TREE" || fail_closed "cannot enter the index copy"
+  run_gitleaks tree tree dir .
+  cd "$ROOT" || fail_closed "cannot enter repository root"
+  git diff --name-only --diff-filter=ACMRT -z >"$TMP/wtfiles"
+  if [ -s "$TMP/wtfiles" ]; then
+    "$PY" "$SCRIPT_DIR/layers.py" copy-files "$ROOT" "$TMP/wt" "$TMP/wtfiles" || fail_closed "cannot copy the working tree"
+    cd "$TMP/wt" || fail_closed "cannot enter the working-tree copy"
+    run_gitleaks working-tree worktree dir .
+    cd "$ROOT" || fail_closed "cannot enter repository root"
+  fi
 fi
 
 # ---- layers b and c: confcrypt check, SOPS metadata -----------------------
-# Both run against a copy of the index, so staged content (not the working
-# tree) is what gets checked and config files are found as committed.
-TREE="$TMP/tree"
-git -c core.autocrlf=false checkout-index -a --prefix="$TREE/" || fail_closed "cannot materialize the index"
 if [ "$MODE" = "--staged" ]; then
   git diff --cached --name-only --diff-filter=ACMR -z >"$TMP/files"
 else

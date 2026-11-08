@@ -5,6 +5,7 @@
     layers.py confcrypt <tree> <list>   confcrypt check over managed files
     layers.py sops <tree> <list>        SOPS metadata check over governed files
     layers.py review <tree> <list>      identifying details for manual review (never fails)
+    layers.py copy-files <src> <dst> <list>  copy listed files from src to dst
 
 <tree> is a materialized copy of the index; <list> holds NUL-separated paths
 relative to it (the files to check). Exit 1 on any finding.
@@ -12,6 +13,7 @@ relative to it (the files to check). Exit 1 on any finding.
 import json
 import os
 import re
+import shutil
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -21,6 +23,15 @@ sys.path.insert(0, os.path.join(HERE, "..", "confcrypt"))
 def read_list(path):
     with open(path, "rb") as f:
         return [p.decode("utf-8") for p in f.read().split(b"\0") if p]
+
+
+def copy_files(src, dst, rels):
+    """Copy each listed file from src to the same relative path under dst."""
+    for rel in rels:
+        target = os.path.join(dst, rel)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        shutil.copyfile(os.path.join(src, rel), target)
+    return 0
 
 
 def gitleaks_report(label, path):
@@ -232,6 +243,8 @@ def review_layer(tree, rels):
 def main(argv):
     if len(argv) == 4 and argv[1] == "gitleaks-report":
         return gitleaks_report(argv[2], argv[3])
+    if len(argv) == 5 and argv[1] == "copy-files":
+        return copy_files(argv[2], argv[3], read_list(argv[4]))
     if len(argv) == 4 and argv[1] in ("confcrypt", "sops", "review"):
         fn = {"confcrypt": confcrypt_layer, "sops": sops_layer, "review": review_layer}[argv[1]]
         return fn(argv[2], read_list(argv[3]))
