@@ -25,11 +25,11 @@ The gate fails closed if a tool it needs is missing. Put these on `PATH` first:
 
 The hooks can be skipped with `--no-verify`, but that only defers the failure. The GitHub Action (`.github/workflows/gate.yml`) runs `gate.sh --all` over the full history and tree, and the `main` branch ruleset requires that check to pass. To run the same check locally, use `sh Scripts/gate/gate.sh --all`.
 
-## Restore the DR key for a rebuild
+## Restore the Backup key for a rebuild
 
-Encrypted files can be decrypted with either the daily key or the backup key (see [ADR 0002](docs/adr/0002-age-key-layout.md)). A disaster-recovery rebuild uses the backup key. Its private half is kept offline as a passphrase-protected age file, on a USB stick and as a printed copy. The steps below assume Linux on the rebuild machine.
+Encrypted files can be decrypted with either the Daily key or the Backup key (see [ADR 0002](docs/adr/0002-age-key-layout.md)). A disaster-recovery rebuild uses the Backup key, which serves as the DR key. Its private half is kept offline as a passphrase-protected age file, on a USB stick and as a printed copy. The steps below assume Linux on the rebuild machine.
 
-1. Decrypt the backup key to the standard key path. Enter its passphrase when asked:
+1. Decrypt the Backup key to the standard key path. Enter its passphrase when asked:
 
    ```sh
    mkdir -p "$HOME/.sops" && chmod 700 "$HOME/.sops"
@@ -53,6 +53,6 @@ Encrypted files can be decrypted with either the daily key or the backup key (se
    shred -u "$HOME/.sops/keys.txt"
    ```
 
-   Also delete any typed-in copy of the printed key the same way. The backup key stays offline. It never goes into CI, Vault or the repo.
+   Also delete any typed-in copy of the printed key the same way. The Backup key stays offline. It never goes into CI, Vault or the repo.
 
-To set up a new daily workstation key after a rebuild, generate it with `age-keygen -o ~/.sops/keys.txt` and add its public half to `.sops.yaml`. Then, from a machine that holds the backup key, run `sops updatekeys <file>` for each SOPS-governed file and `python Scripts/confcrypt/confcrypt.py rekey <file>` for each confcrypt-managed file.
+To set up a new Daily key on the workstation after a rebuild, generate it with `age-keygen -o ~/.sops/keys.txt` and add its public half to `.sops.yaml`. Then, from a machine that holds the Backup key, run `sops updatekeys <file>` for each SOPS-governed file and `python Scripts/confcrypt/confcrypt.py rekey <file>` for each confcrypt-managed file.
