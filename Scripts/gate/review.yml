@@ -1,0 +1,15 @@
+# Identifying-details review settings for the scanning gate (layer e of
+# Scripts/gate/gate.sh). The review only reports; it never fails the gate.
+#
+# These are this lab's values. When deploying the blueprint for another lab,
+# change them here; the gate code holds no lab-specific values.
+#
+# lab_domain : emails at this domain (or any subdomain of it) are internal and
+#              are not reported.
+# resolvers  : public IPv4 addresses that are expected in configs (public DNS
+#              resolvers) and are not reported.
+
+lab_domain: mikewashere.lan
+resolvers:
+  - 1.1.1.1
+  - 9.9.9.9

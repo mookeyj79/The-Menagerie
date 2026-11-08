@@ -5,6 +5,7 @@
     layers.py confcrypt <tree> <list>   confcrypt check over managed files
     layers.py sops <tree> <list>        SOPS metadata check over governed files
     layers.py review <tree> <list>      identifying details for manual review (never fails)
+    layers.py copy-files <src> <dst> <list>  copy listed files from src to dst
 
 <tree> is a materialized copy of the index; <list> holds NUL-separated paths
 relative to it (the files to check). Exit 1 on any finding.
@@ -12,6 +13,7 @@ relative to it (the files to check). Exit 1 on any finding.
 import json
 import os
 import re
+import shutil
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -21,6 +23,15 @@ sys.path.insert(0, os.path.join(HERE, "..", "confcrypt"))
 def read_list(path):
     with open(path, "rb") as f:
         return [p.decode("utf-8") for p in f.read().split(b"\0") if p]
+
+
+def copy_files(src, dst, rels):
+    """Copy each listed file from src to the same relative path under dst."""
+    for rel in rels:
+        target = os.path.join(dst, rel)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        shutil.copyfile(os.path.join(src, rel), target)
+    return 0
 
 
 def gitleaks_report(label, path):
@@ -40,17 +51,22 @@ def gitleaks_report(label, path):
 
 # ---- confcrypt layer ------------------------------------------------------
 
-def _find_config(tree, rel):
-    """Nearest .confcrypt.yml above the file, bounded by the tree root."""
-    d = os.path.dirname(os.path.join(tree, rel))
-    tree = os.path.abspath(tree)
-    while True:
-        cand = os.path.join(d, ".confcrypt.yml")
-        if os.path.isfile(cand):
-            return cand
-        if os.path.abspath(d) == tree or os.path.dirname(d) == d:
-            return None
-        d = os.path.dirname(d)
+def _managed_dialect(tree, rel, cache):
+    """The confcrypt dialect for a file in the tree copy, or None when the file
+    is not confcrypt-managed. The config search stops at the tree root. Raises
+    ConfcryptError for a broken config."""
+    import confcrypt as cc
+
+    full = os.path.join(tree, rel)
+    cfg = cc.find_config(None, full, root=tree)
+    if cfg is None:
+        return None
+    if cfg not in cache:
+        cache[cfg] = cc.load_config(cfg)[1]
+    try:
+        return cc.pick_dialect(full, None, cache[cfg], cfg)
+    except cc.NoDialectError:
+        return None
 
 
 def confcrypt_layer(tree, rels):
@@ -59,19 +75,14 @@ def confcrypt_layer(tree, rels):
     failed = False
     cache = {}
     for rel in rels:
-        cfg = _find_config(tree, rel)
-        if cfg is None:
-            continue
         full = os.path.join(tree, rel)
         try:
-            if cfg not in cache:
-                cache[cfg] = cc.load_config(cfg)[1]
-            dialect = cc.pick_dialect(full, None, cache[cfg], cfg)
+            dialect = _managed_dialect(tree, rel, cache)
         except cc.ConfcryptError as e:
-            if str(e).startswith("No dialect"):
-                continue  # not a confcrypt-managed file
             print(f"gate: confcrypt: {rel}: config error: {e}")
             failed = True
+            continue
+        if dialect is None:
             continue
         try:
             problems = cc.check_text(cc.read_text(full), dialect)
@@ -169,8 +180,7 @@ def sops_layer(tree, rels):
 
 # ---- identifying-details review (reported, never failing) -----------------
 
-LAB_DOMAIN = "mikewashere.lan"
-RESOLVERS = {"1.1.1.1", "9.9.9.9"}
+REVIEW_CONFIG = os.path.join(HERE, "review.yml")
 EMAIL_RX = re.compile(r"[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)")
 IP_RX = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?!\d|\.\d)")
 MAC_RX = re.compile(
@@ -179,22 +189,41 @@ MAC_RX = re.compile(
 )
 
 
-def _line_kinds(line):
+def _review_config(path=REVIEW_CONFIG):
+    """(lab_domain, resolvers) from review.yml; this lab's values live there."""
+    import yaml
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        cfg = {}
+    domain = str(cfg.get("lab_domain") or "").lower().lstrip(".")
+    return domain, {str(r) for r in cfg.get("resolvers") or []}
+
+
+def _internal_email_domain(domain, lab):
+    domain = domain.lower()
+    return bool(lab) and (domain == lab or domain.endswith("." + lab))
+
+
+def _line_kinds(line, lab_domain, resolvers):
     """Kinds of identifying detail on one line (values are never returned)."""
     import ipaddress
 
     kinds = []
-    if any(not m.group(1).lower().endswith(LAB_DOMAIN) for m in EMAIL_RX.finditer(line)):
+    if any(not _internal_email_domain(m.group(1), lab_domain) for m in EMAIL_RX.finditer(line)):
         kinds.append("email")
     for m in IP_RX.finditer(line):
         try:
             ip = ipaddress.IPv4Address(m.group(0))
         except ValueError:
             continue
-        if ip.is_global and m.group(0) not in RESOLVERS:
+        if ip.is_global and m.group(0) not in resolvers:
             kinds.append("public-ip")
             break
-    if MAC_RX.search(line):
+    # the all-zero MAC is the placeholder confcrypt dummies use, not a device
+    if any(set(re.sub(r"[:.-]", "", m.group(0))) != {"0"} for m in MAC_RX.finditer(line)):
         kinds.append("mac")
     return kinds
 
@@ -203,17 +232,17 @@ def review_layer(tree, rels):
     import confcrypt as cc
 
     rules = _sops_rules(tree)
+    lab_domain, resolvers = _review_config()
+    cache = {}
     for rel in rels:
         if _governing_rule(rules, rel) is not None:
             continue  # SOPS-governed: encrypted path
-        full = os.path.join(tree, rel)
-        cfg = _find_config(tree, rel)
-        if cfg is not None:
-            try:
-                cc.pick_dialect(full, None, cc.load_config(cfg)[1], cfg)
+        try:
+            if _managed_dialect(tree, rel, cache) is not None:
                 continue  # confcrypt-managed: encrypted path (the check layer covers it)
-            except cc.ConfcryptError:
-                pass
+        except cc.ConfcryptError:
+            pass  # broken config: the confcrypt layer fails it; still review here
+        full = os.path.join(tree, rel)
         try:
             with open(full, "rb") as f:
                 data = f.read()
@@ -222,9 +251,7 @@ def review_layer(tree, rels):
         if b"\0" in data:
             continue
         for n, line in enumerate(data.decode("utf-8", "replace").splitlines(), 1):
-            if "REDACTED" in line or "confcrypt v2" in line:
-                continue
-            for kind in _line_kinds(line):
+            for kind in _line_kinds(line, lab_domain, resolvers):
                 print(f"gate: review: {rel}:{n}: {kind} (identifying detail, not blocking)")
     return 0
 
@@ -232,6 +259,8 @@ def review_layer(tree, rels):
 def main(argv):
     if len(argv) == 4 and argv[1] == "gitleaks-report":
         return gitleaks_report(argv[2], argv[3])
+    if len(argv) == 5 and argv[1] == "copy-files":
+        return copy_files(argv[2], argv[3], read_list(argv[4]))
     if len(argv) == 4 and argv[1] in ("confcrypt", "sops", "review"):
         fn = {"confcrypt": confcrypt_layer, "sops": sops_layer, "review": review_layer}[argv[1]]
         return fn(argv[2], read_list(argv[3]))

@@ -95,6 +95,25 @@ def test_lab_domain_is_not_flagged(repo, mode):
     assert "docs/hosts.md" not in r.text
 
 
+def test_lab_domain_and_resolvers_come_from_the_review_config(repo, tmp_path):
+    """The blueprint's own values live in Scripts/gate/review.yml, not in code."""
+    gate_copy = tmp_path / "gatecopy"
+    shutil.copytree(GATE_DIR, gate_copy / "Scripts" / "gate", ignore=shutil.ignore_patterns("tests", "__pycache__"))
+    shutil.copytree(CONFCRYPT.parent, gate_copy / "Scripts" / "confcrypt", ignore=shutil.ignore_patterns("tests", "__pycache__"))
+    shutil.copy(REPO_ROOT / ".gitleaks.toml", gate_copy / ".gitleaks.toml")
+    (gate_copy / "Scripts" / "gate" / "review.yml").write_text(
+        "lab_domain: other.example\nresolvers:\n  - 8.8.4.4\n")
+    repo.write("docs/hosts.md", "admin@other.example\ndns 8.8.4.4\nadmin@mikewashere.lan\ndns 1.1.1.1\n")
+    repo.stage_all()
+    p = subprocess.run([sh_exe(), str(gate_copy / "Scripts" / "gate" / "gate.sh"), "--staged"],
+                       cwd=repo.root, capture_output=True, env=dict(os.environ))
+    text = p.stdout.decode(errors="replace") + p.stderr.decode(errors="replace")
+    assert p.returncode == 0, text
+    assert "docs/hosts.md:1" not in text and "docs/hosts.md:2" not in text
+    assert "docs/hosts.md:3: email" in text
+    assert "docs/hosts.md:4: public-ip" in text
+
+
 @pytest.mark.parametrize("mode", ["--staged", "--all"])
 def test_mac_outside_router_configs_is_reported_but_does_not_fail(repo, mode):
     _mk(repo, mode, "docs/inventory.md", "nic aa:bb:cc:00:11:22\n")

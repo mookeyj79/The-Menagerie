@@ -53,11 +53,33 @@ def test_install_sets_hookspath(clone):
     assert git(clone, "config", "core.hooksPath").stdout.strip() == ".githooks"
 
 
-def test_hook_is_lf_and_thin():
-    data = (REPO / ".githooks" / "pre-commit").read_bytes()
+@pytest.mark.parametrize("hook", ["pre-commit", "pre-merge-commit"])
+def test_hook_is_lf_and_thin(hook):
+    data = (REPO / ".githooks" / hook).read_bytes()
     assert b"\r" not in data
     text = data.decode()
     assert text.count("gate.sh") == 1 and "--staged" in text and "--all" not in text
+
+
+def test_merge_commit_bringing_in_a_secret_is_blocked(clone):
+    (clone / "ok.txt").write_text("hello\n")
+    git(clone, "add", "ok.txt")
+    git(clone, "commit", "-qm", "base")
+    base = git(clone, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    git(clone, "checkout", "-qb", "side")
+    fake = "ghp_" + "".join(secrets.choice(ALNUM) for _ in range(36))
+    (clone / "leak.txt").write_text(f"token = {fake}\n")
+    git(clone, "add", "leak.txt")
+    git(clone, "commit", "-qm", "leak (made before the hooks were installed)")
+    git(clone, "checkout", "-q", base)
+    (clone / "other.txt").write_text("other\n")
+    git(clone, "add", "other.txt")
+    git(clone, "commit", "-qm", "diverge")
+    install(clone)
+    p = git(clone, "merge", "--no-ff", "--no-edit", "side", check=False)
+    assert p.returncode != 0
+    assert fake not in p.stdout + p.stderr
+    assert git(clone, "rev-list", "--count", "HEAD").stdout.strip() == "2"
 
 
 def test_hook_blocks_plaintext_secret_and_allows_clean(clone):
