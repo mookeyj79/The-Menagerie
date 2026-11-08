@@ -107,3 +107,18 @@ def test_all_mode_catches_a_secret_removed_in_a_later_commit(repo):
     repo.commit("fix")
     r = repo.gate("--all")
     assert r.code != 0 and "history" in r.text
+
+
+@pytest.mark.parametrize("stage", [True, False], ids=["staged", "unstaged"])
+def test_all_mode_scans_the_current_tree_not_only_history(repo, stage):
+    path = "group_vars/db.yml"
+    repo.write(path, "db_password: <SET_ME>\n")
+    repo.commit()
+    value = rnd(16)
+    repo.write(path, f'db_password: "{value}"\n')  # never committed
+    if stage:
+        repo.stage_all()
+    r = repo.gate("--all")
+    assert r.code != 0, r.text
+    assert path in r.text
+    assert value not in r.text
