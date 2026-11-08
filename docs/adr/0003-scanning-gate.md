@@ -1,6 +1,6 @@
 # Scanning gate: one script in hook and CI, CI is the real gate, pinned gitleaks binary
 
-The gate is a single POSIX-sh script, `Scripts/gate/gate.sh`. The pre-commit hook runs it with `--staged`, and the GitHub Action runs it with `--all` (full history, tracked tree, and the Ignored set). Three layers must all pass:
+The gate is a single POSIX-sh script, `Scripts/gate/gate.sh`. The `pre-commit` and `pre-merge-commit` hooks run it with `--staged`, and the GitHub Action runs it with `--all` (full history, the current tree including uncommitted changes, and the Ignored set). Three layers must all pass:
 
 - gitleaks, with its default rules plus custom rules for the shapes the defaults miss
 - `confcrypt check` over confcrypt-managed files
