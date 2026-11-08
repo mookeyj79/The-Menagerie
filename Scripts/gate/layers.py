@@ -51,17 +51,22 @@ def gitleaks_report(label, path):
 
 # ---- confcrypt layer ------------------------------------------------------
 
-def _find_config(tree, rel):
-    """Nearest .confcrypt.yml above the file, bounded by the tree root."""
-    d = os.path.dirname(os.path.join(tree, rel))
-    tree = os.path.abspath(tree)
-    while True:
-        cand = os.path.join(d, ".confcrypt.yml")
-        if os.path.isfile(cand):
-            return cand
-        if os.path.abspath(d) == tree or os.path.dirname(d) == d:
-            return None
-        d = os.path.dirname(d)
+def _managed_dialect(tree, rel, cache):
+    """The confcrypt dialect for a file in the tree copy, or None when the file
+    is not confcrypt-managed. The config search stops at the tree root. Raises
+    ConfcryptError for a broken config."""
+    import confcrypt as cc
+
+    full = os.path.join(tree, rel)
+    cfg = cc.find_config(None, full, root=tree)
+    if cfg is None:
+        return None
+    if cfg not in cache:
+        cache[cfg] = cc.load_config(cfg)[1]
+    try:
+        return cc.pick_dialect(full, None, cache[cfg], cfg)
+    except cc.NoDialectError:
+        return None
 
 
 def confcrypt_layer(tree, rels):
@@ -70,19 +75,14 @@ def confcrypt_layer(tree, rels):
     failed = False
     cache = {}
     for rel in rels:
-        cfg = _find_config(tree, rel)
-        if cfg is None:
-            continue
         full = os.path.join(tree, rel)
         try:
-            if cfg not in cache:
-                cache[cfg] = cc.load_config(cfg)[1]
-            dialect = cc.pick_dialect(full, None, cache[cfg], cfg)
+            dialect = _managed_dialect(tree, rel, cache)
         except cc.ConfcryptError as e:
-            if str(e).startswith("No dialect"):
-                continue  # not a confcrypt-managed file
             print(f"gate: confcrypt: {rel}: config error: {e}")
             failed = True
+            continue
+        if dialect is None:
             continue
         try:
             problems = cc.check_text(cc.read_text(full), dialect)
@@ -233,17 +233,16 @@ def review_layer(tree, rels):
 
     rules = _sops_rules(tree)
     lab_domain, resolvers = _review_config()
+    cache = {}
     for rel in rels:
         if _governing_rule(rules, rel) is not None:
             continue  # SOPS-governed: encrypted path
-        full = os.path.join(tree, rel)
-        cfg = _find_config(tree, rel)
-        if cfg is not None:
-            try:
-                cc.pick_dialect(full, None, cc.load_config(cfg)[1], cfg)
+        try:
+            if _managed_dialect(tree, rel, cache) is not None:
                 continue  # confcrypt-managed: encrypted path (the check layer covers it)
-            except cc.ConfcryptError:
-                pass
+        except cc.ConfcryptError:
+            pass  # broken config: the confcrypt layer fails it; still review here
+        full = os.path.join(tree, rel)
         try:
             with open(full, "rb") as f:
                 data = f.read()
