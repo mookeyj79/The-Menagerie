@@ -22,7 +22,7 @@
 
 **Backup key**: The second age keypair, kept offline. Every encrypted file is also readable with it, and it is the key used to rebuild the lab.
 
-**Gate**: The set of checks (secret scan, confcrypt check, SOPS-encrypted check) that must pass before a change can enter the repo. It runs in the git hook for staged changes and in CI for everything.
+**Gate**: The set of checks that must pass before a change can enter the repo: a gitleaks secret scan (staged changes in the hook; full history plus the current tree in CI), the confcrypt check over confcrypt-managed files, the SOPS-encrypted check over SOPS-governed files, a refusal of any `.gitleaksignore`, and in CI that no Ignored-set path is tracked. It also reports identifying details (emails, public IPs, MACs) for review without failing. It runs in the `pre-commit` and `pre-merge-commit` hooks for staged changes and in CI for everything.
 
 **Ignored set**: The paths gitignored because they are generated copies, secret dumps, key files or state files: every `OLD/` folder, `Disaster_Recovery/DR_Dir/`, the Vault dumps, `Homelab Scripts/Secrets/`, `Router Configs/Backups/`, age key files, and Terraform state, plans, crash logs and `.tfvars` variable files. CI fails if any of them is tracked.
 

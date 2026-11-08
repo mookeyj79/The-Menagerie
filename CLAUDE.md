@@ -23,12 +23,16 @@ The homelab is built in layers, each in its own top-level directory:
 ## Secrets
 
 - Secrets live in HashiCorp Vault. `Homelab Scripts/` holds helpers (`Write-VaultSecret.ps1`, `Write_VaultSecret.sh`, `dump_vault.ps1`, `clone_homelab.ps1`), and `Secrets Layout.txt` documents the Vault path layout. `vault_backup.json` / `vault_secrets.json` in that directory are secret dumps — do not read, print, or commit them.
-- Router configs are protected with **`Scripts/confcrypt/confcrypt.py`**, which age-encrypts sensitive values inline (replacing them with `<PLACEHOLDER>` tokens plus a `# confcrypt ...` comment line above). Patterns are defined per file extension in `Router Configs/.confcrypt.yml`. Usage:
+- Structured files (YAML, JSON, dotenv, ini) are encrypted with **SOPS**; `.sops.yaml` holds the creation rules and the age recipients (daily key and Backup key, see ADR 0002). Use `sops edit <file>` on a SOPS-governed file rather than writing plaintext into it.
+- Unstructured text (router configs, the Wi-Fi notes file) is protected with **confcrypt v2** (`Scripts/confcrypt/confcrypt.py`). Rules are whole-line: each dialect in `Router Configs/.confcrypt.yml` pairs a line regex with a fixed dummy line, and every matching line is replaced whole by its dummy, with the age-encrypted original in a metadata comment line directly above (`# confcrypt v2 <blob>`, `!` for Cisco). Recipients come from `.sops.yaml`. Usage:
   ```
-  python Scripts/confcrypt/confcrypt.py encrypt|decrypt <file> [--in-place | -o OUT] [--backup]
+  python Scripts/confcrypt/confcrypt.py encrypt|decrypt|rekey <file> [--in-place [--backup] | -o OUT]
+  python Scripts/confcrypt/confcrypt.py encrypt <file> --dry-run
   python Scripts/confcrypt/confcrypt.py edit <file>
+  python Scripts/confcrypt/confcrypt.py check <file>...
   ```
-  Identity key is a path (`--identity`, `$SOPS_AGE_KEY_FILE`, config, or `~/.sops/keys.txt`); keys are never passed as arguments. Don't hand-edit lines near `confcrypt` comments.
+  `check` is key-less. The identity is a path (`--identity`, `$SOPS_AGE_KEY_FILE`, config, or `~/.sops/keys.txt`); keys are never passed as arguments. Change protected lines with `edit`, leaving metadata/dummy pairs untouched by hand.
+- The **gate** (`Scripts/gate/gate.sh`, ADR 0003) runs from the `pre-commit` and `pre-merge-commit` hooks (`--staged`) and in CI (`--all`). It must pass; reviewed false positives go in `.gitleaks.toml` or an inline `gitleaks:allow`.
 - Some Terraform files contain placeholder/bootstrap values (e.g. cloud-init passwords in `Terraform/Systems/*/main.tf`); don't propagate them into new files.
 
 ## Conventions

@@ -73,14 +73,51 @@ regexes = [
 ]
 
 # ---- global allowlist ----------------------------------------------------
+# Encrypted lines (story 42), and nothing else: only whole lines that are
+# exactly a rule dummy from Router Configs/.confcrypt.yml or a metadata line. A
+# stray REDACTED token on any other line is not allowlisted. gitleaks hands the
+# line over with its newline(s), hence the \n? and \r?\n? anchors.
+# Leading indentation is allowed so docs and examples that quote a dummy pass.
+#
+# Not path-scoped on purpose: in `gitleaks dir` (used by gate --all) an
+# allowlist with `paths` skips matching files whole, even with condition AND,
+# which would hide a plaintext line in a router config. An exact dummy line
+# holds no secret wherever it appears, and the confcrypt layer of the gate checks
+# that every dummy in a confcrypt-managed file sits under a metadata line.
+#
+# Keep the dummy list in step with .confcrypt.yml; the gate test
+# test_every_rule_dummy_as_encrypted_line_passes fails if a dummy is missing.
 [[allowlists]]
-description = "confcrypt dummy lines and metadata lines (encrypted lines)"
+description = "confcrypt Encrypted lines: exact rule dummies and metadata lines"
 regexTarget = "line"
 regexes = [
-  # dummy lines all carry the REDACTED token as a whole word
-  '''(?:^|[\s=:'"])REDACTED['"]?(?:\s|$)''',
   # metadata line: <comment> confcrypt v2 <base64 age blob>
-  '''^\s*[#!]\s*confcrypt v2 [A-Za-z0-9+/=_-]+\s*$''',
+  '''^\n?[ \t]*[#!] confcrypt v2 [A-Za-z0-9_-]+\r?\n?$''',
+  # rsc dummies
+  '''^\n?[ \t]*/user add name=REDACTED group=REDACTED password=REDACTED\r?\n?$''',
+  '''^\n?[ \t]*/routing/ospf/interface-template add auth-key=REDACTED\r?\n?$''',
+  '''^\n?[ \t]*/interface/wifi/security add pre-shared-key=REDACTED\r?\n?$''',
+  '''^\n?[ \t]*/interface/wifi/security add passphrase=REDACTED\r?\n?$''',
+  '''^\n?[ \t]*/snmp community add name=REDACTED\r?\n?$''',
+  '''^\n?[ \t]*/ppp secret add name=REDACTED password=REDACTED\r?\n?$''',
+  '''^\n?[ \t]*/interface/wireguard add private-key=REDACTED\r?\n?$''',
+  '''^\n?[ \t]*/ip ipsec identity add secret=REDACTED\r?\n?$''',
+  '''^\n?[ \t]*/radius add secret=REDACTED\r?\n?$''',
+  '''^\n?[ \t]*/tool e-mail set password=REDACTED\r?\n?$''',
+  '''^\n?[ \t]*# REDACTED 00:00:00:00:00:00\r?\n?$''',
+  # ios dummies
+  '''^\n?[ \t]*enable secret 9 REDACTED\r?\n?$''',
+  '''^\n?[ \t]*username REDACTED secret 9 REDACTED\r?\n?$''',
+  '''^\n?[ \t]*snmp-server community REDACTED RO\r?\n?$''',
+  '''^\n?[ \t]*key-string REDACTED\r?\n?$''',
+  '''^\n?[ \t]*key-hash ssh-rsa REDACTED\r?\n?$''',
+  '''^\n?[ \t]*ip ospf message-digest-key 1 md5 7 REDACTED\r?\n?$''',
+  '''^\n?[ \t]*password 7 REDACTED\r?\n?$''',
+  '''^\n?[ \t]*crypto isakmp key REDACTED address 0\.0\.0\.0\r?\n?$''',
+  '''^\n?[ \t]*tacacs-server key 7 REDACTED\r?\n?$''',
+  '''^\n?[ \t]*! REDACTED 0000\.0000\.0000\r?\n?$''',
+  # wifi dummy
+  '''^\n?[ \t]*REDACTED\r?\n?$''',
 ]
 
 [[allowlists]]
