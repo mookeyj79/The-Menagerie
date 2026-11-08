@@ -1,5 +1,9 @@
 """Seam 1 (continued): confcrypt layer, SOPS layer, Ignored set, fail-closed, modes."""
+import base64
+
+import pyrage
 import pytest
+import yaml
 
 from conftest import ROUTER_DIR, rnd
 
@@ -122,3 +126,55 @@ def test_all_mode_scans_the_current_tree_not_only_history(repo, stage):
     assert r.code != 0, r.text
     assert path in r.text
     assert value not in r.text
+
+
+# ---- encrypted-line allowlist: exact confcrypt lines only -------------------
+
+@pytest.mark.parametrize("mode", ["--staged", "--all"])
+def test_redacted_token_does_not_hide_a_plaintext_credential(repo, mode):
+    value = rnd(18)
+    repo.write("group_vars/db.yml", f"db_password: {value} # REDACTED\n")
+    if mode == "--all":
+        repo.commit()
+    else:
+        repo.stage_all()
+    r = repo.gate(mode)
+    assert r.code != 0, r.text
+    assert "group_vars/db.yml" in r.text
+    assert value not in r.text
+
+
+def test_redacted_token_does_not_hide_an_identifying_detail_from_review(repo):
+    who = "u" + rnd(8).lower()
+    repo.write("docs/contact.md", f"mail {who}@example.org # REDACTED\n")
+    repo.stage_all()
+    r = repo.gate("--staged")
+    assert r.code == 0, r.text
+    assert "docs/contact.md:1" in r.text
+
+
+def _every_dummy_encrypted(repo):
+    """One confcrypt-managed file per dialect holding every rule dummy as an
+    Encrypted line (metadata line, then the exact dummy)."""
+    cfg = yaml.safe_load((repo.root / ROUTER_DIR / ".confcrypt.yml").read_text())
+    ident = pyrage.x25519.Identity.from_str(repo.key_file.read_text().strip())
+    names = {"rsc": "Router1.rsc", "ios": "Router3.ios", "wifi": "WiFi's.txt"}
+    for dialect, ft in cfg["filetypes"].items():
+        out = []
+        for rule in ft["rules"]:
+            blob = pyrage.encrypt(rnd(20).encode(), [ident.to_public()])
+            out.append(f"{ft['comment']} confcrypt v2 {base64.urlsafe_b64encode(blob).rstrip(b'=').decode()}")
+            out.append(rule["dummy"])
+        repo.write(f"{ROUTER_DIR}/{names[dialect]}", "\n".join(out) + "\n")
+
+
+@pytest.mark.parametrize("mode", ["--staged", "--all"])
+def test_every_rule_dummy_as_encrypted_line_passes(repo, mode):
+    _every_dummy_encrypted(repo)
+    if mode == "--all":
+        repo.commit()
+    else:
+        repo.stage_all()
+    r = repo.gate(mode)
+    assert r.code == 0, r.text
+    assert "review" not in r.text
