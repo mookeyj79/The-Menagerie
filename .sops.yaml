@@ -1,0 +1,9 @@
+creation_rules:
+  - path_regex: '(^|[/\\])Disaster_Recovery[/\\]Templates[/\\]host_vars[/\\]vault1\.yml$'
+    age: age1jncegvd2jhehmkjsydzqrw82sv6q64cj824squdqnfwltnjrkfjqwalss7,age1l0q55c6y934x9lmcrs2dph5x8u4j663ksatj0chvzv3dwa0hjs0se67wwu
+  - path_regex: '(^|[/\\])Disaster_Recovery[/\\]Templates[/\\]host_vars[/\\]auth1\.yml$'
+    age: age1jncegvd2jhehmkjsydzqrw82sv6q64cj824squdqnfwltnjrkfjqwalss7,age1l0q55c6y934x9lmcrs2dph5x8u4j663ksatj0chvzv3dwa0hjs0se67wwu
+  - path_regex: '(^|[/\\])Disaster_Recovery[/\\]Templates[/\\]host_vars[/\\]seeder1\.yml$'
+    age: age1jncegvd2jhehmkjsydzqrw82sv6q64cj824squdqnfwltnjrkfjqwalss7,age1l0q55c6y934x9lmcrs2dph5x8u4j663ksatj0chvzv3dwa0hjs0se67wwu
+  - path_regex: '\.sops\.(ya?ml|json|env)$'
+    age: age1jncegvd2jhehmkjsydzqrw82sv6q64cj824squdqnfwltnjrkfjqwalss7,age1l0q55c6y934x9lmcrs2dph5x8u4j663ksatj0chvzv3dwa0hjs0se67wwu
