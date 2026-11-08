@@ -12,7 +12,8 @@
 #   c. SOPS metadata check over SOPS-governed files
 #   d. --all only: no Ignored-set path may be tracked
 #   e. identifying details (emails, public IPs, MACs outside encrypted paths)
-#      are reported for manual review and never fail the gate
+#      are reported for manual review and never fail the gate (this lab's
+#      domain and expected resolvers: Scripts/gate/review.yml)
 #
 # Fails closed when gitleaks, sops or python is missing. Override the commands
 # with GATE_GITLEAKS, GATE_SOPS and GATE_PYTHON. Findings are reported as

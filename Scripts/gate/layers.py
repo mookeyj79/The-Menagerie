@@ -180,8 +180,7 @@ def sops_layer(tree, rels):
 
 # ---- identifying-details review (reported, never failing) -----------------
 
-LAB_DOMAIN = "mikewashere.lan"
-RESOLVERS = {"1.1.1.1", "9.9.9.9"}
+REVIEW_CONFIG = os.path.join(HERE, "review.yml")
 EMAIL_RX = re.compile(r"[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)")
 IP_RX = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?!\d|\.\d)")
 MAC_RX = re.compile(
@@ -190,19 +189,37 @@ MAC_RX = re.compile(
 )
 
 
-def _line_kinds(line):
+def _review_config(path=REVIEW_CONFIG):
+    """(lab_domain, resolvers) from review.yml; this lab's values live there."""
+    import yaml
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        cfg = {}
+    domain = str(cfg.get("lab_domain") or "").lower().lstrip(".")
+    return domain, {str(r) for r in cfg.get("resolvers") or []}
+
+
+def _internal_email_domain(domain, lab):
+    domain = domain.lower()
+    return bool(lab) and (domain == lab or domain.endswith("." + lab))
+
+
+def _line_kinds(line, lab_domain, resolvers):
     """Kinds of identifying detail on one line (values are never returned)."""
     import ipaddress
 
     kinds = []
-    if any(not m.group(1).lower().endswith(LAB_DOMAIN) for m in EMAIL_RX.finditer(line)):
+    if any(not _internal_email_domain(m.group(1), lab_domain) for m in EMAIL_RX.finditer(line)):
         kinds.append("email")
     for m in IP_RX.finditer(line):
         try:
             ip = ipaddress.IPv4Address(m.group(0))
         except ValueError:
             continue
-        if ip.is_global and m.group(0) not in RESOLVERS:
+        if ip.is_global and m.group(0) not in resolvers:
             kinds.append("public-ip")
             break
     # the all-zero MAC is the placeholder confcrypt dummies use, not a device
@@ -215,6 +232,7 @@ def review_layer(tree, rels):
     import confcrypt as cc
 
     rules = _sops_rules(tree)
+    lab_domain, resolvers = _review_config()
     for rel in rels:
         if _governing_rule(rules, rel) is not None:
             continue  # SOPS-governed: encrypted path
@@ -234,7 +252,7 @@ def review_layer(tree, rels):
         if b"\0" in data:
             continue
         for n, line in enumerate(data.decode("utf-8", "replace").splitlines(), 1):
-            for kind in _line_kinds(line):
+            for kind in _line_kinds(line, lab_domain, resolvers):
                 print(f"gate: review: {rel}:{n}: {kind} (identifying detail, not blocking)")
     return 0
 
