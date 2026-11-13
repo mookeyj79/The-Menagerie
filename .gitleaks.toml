@@ -11,14 +11,16 @@ title = "The Menagerie gate"
 useDefault = true
 
 # ---- custom rules (Go RE2: no lookaheads) -------------------------------
-# Values must not start with `<`, `$`, `{`, quote or `#` so placeholders such as
-# <PLACEHOLDER>, ${VAR} and templated values pass. confcrypt dummy lines are
-# allowed by the global allowlist at the bottom.
+# Values may start with any character except whitespace or a quote, so a real
+# secret beginning with `$`, `#`, `<` or `{` is still caught. Placeholders are
+# exempted by the "whole-token placeholders" allowlist at the bottom, which
+# looks at the captured value only. confcrypt dummy lines are allowed by the
+# Encrypted-lines allowlist there too.
 
 [[rules]]
 id = "cipassword"
 description = "Proxmox cloud-init password"
-regex = '''(?i)\bcipassword["']?\s*[:=]\s*["']?([^\s"'<>${}#][^\s"']{2,})'''
+regex = '''(?i)\bcipassword["']?\s*[:=]\s*["']?([^\s"'][^\s"']{2,})'''
 secretGroup = 1
 keywords = ["cipassword"]
 [[rules.allowlists]]
@@ -28,14 +30,14 @@ regexes = ['''^(var|local|data|module)\.''']
 [[rules]]
 id = "routeros-password"
 description = "RouterOS password= argument with a literal value"
-regex = '''(?i)\bpassword="?([^\s"'<>${}#][^\s"']*)'''
+regex = '''(?i)\bpassword="?([^\s"'][^\s"']*)'''
 secretGroup = 1
 keywords = ["password="]
 
 [[rules]]
 id = "routeros-psk"
 description = "RouterOS / Wi-Fi pre-shared key, passphrase or routing auth-key"
-regex = '''(?i)\b(?:pre-shared-key|passphrase|auth-key|private-key)="?([^\s"'<>${}#][^\s"']*)'''
+regex = '''(?i)\b(?:pre-shared-key|passphrase|auth-key|private-key)="?([^\s"'][^\s"']*)'''
 secretGroup = 1
 keywords = ["pre-shared-key", "passphrase", "auth-key", "private-key"]
 
@@ -62,7 +64,7 @@ keywords = ["pushover"]
 [[rules]]
 id = "password-not-placeholder"
 description = "password-like assignment whose value is not a placeholder"
-regex = '''(?i)(?:password|passwd|pwd|secret|token|psk|passphrase)["']?\s*[:=]\s*["']?([^\s"'<>$\{\}#][^\s"']{3,})'''
+regex = '''(?i)(?:password|passwd|pwd|secret|token|psk|passphrase)["']?\s*[:=]\s*["']?([^\s"'][^\s"']{3,})'''
 secretGroup = 1
 keywords = ["password", "passwd", "pwd", "secret", "token", "psk", "passphrase"]
 [[rules.allowlists]]
@@ -120,14 +122,37 @@ regexes = [
   '''^\n?[ \t]*REDACTED\r?\n?$''',
 ]
 
+# Whole-token placeholders, matched against the captured value only, so a
+# placeholder elsewhere on the line never hides a real value. Covers
+# <PLACEHOLDER>, ${VAR} / ${var.x}, shell and PowerShell variable references
+# ($VAR, $env:VAR), command substitution ($(...)), Jinja ({{ ... }}) and
+# Python format fields ({name}).
+# Trade-off: a real secret that is a bare `$` plus letters, digits and
+# underscores (e.g. $Summer2024) reads as a variable and is not reported.
+[[allowlists]]
+description = "whole-token placeholders in the custom credential rules"
+targetRules = ["cipassword", "routeros-password", "routeros-psk", "cisco-secret-hash", "password-not-placeholder"]
+regexTarget = "secret"
+regexes = [
+  '''^<[^<>\s]*>$''',
+  '''^\$\{[^}]*\}$''',
+  '''^\$(?:env:)?[A-Za-z_][A-Za-z0-9_]*$''',
+  '''^\$\(''',
+  '''^\{\{''',
+  '''^\{[A-Za-z_][A-Za-z0-9_.]*\}(?:\\[nrt])*$''',
+]
+
 [[allowlists]]
 description = "SOPS-encrypted values (the SOPS layer of the gate checks governed files)"
 regexTarget = "secret"
 regexes = ['''^ENC\[AES256_GCM,data:[A-Za-z0-9+/=]+,iv:''']
 
-# Reviewed path exceptions: one commented entry each.
+# Reviewed path exceptions: one commented entry each. Each is scoped with
+# targetRules to the custom rules, so gitleaks' default rules (keys, tokens)
+# still scan these files.
 [[allowlists]]
 description = "confcrypt rule definitions: comments quote example hash shapes, dummies are inert"
+targetRules = ["cipassword", "routeros-password", "routeros-psk", "cisco-secret-hash", "discord-webhook", "pushover-key", "password-not-placeholder"]
 paths = ['''^Router Configs/\.confcrypt\.yml$''']
 
 # Reviewed: the confcrypt and gate test suites hold obviously fake credential
@@ -137,4 +162,5 @@ paths = ['''^Router Configs/\.confcrypt\.yml$''']
 # `gate --all` and cannot be rewritten.
 [[allowlists]]
 description = "confcrypt and gate test suites: fake credential fixtures"
+targetRules = ["cipassword", "routeros-password", "routeros-psk", "cisco-secret-hash", "discord-webhook", "pushover-key", "password-not-placeholder"]
 paths = ['''^Scripts/(confcrypt|gate)/tests/''']

@@ -54,9 +54,12 @@ fi
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || fail_closed "not inside a git repository"
 cd "$ROOT" || fail_closed "cannot enter repository root"
 
-TMP="$(git rev-parse --absolute-git-dir)/gate.$$"
-mkdir -p "$TMP" || fail_closed "cannot create scratch directory"
-trap 'rm -rf "$TMP"' EXIT INT TERM
+TMP=$(mktemp -d "$(git rev-parse --absolute-git-dir)/gate.XXXXXX") || fail_closed "cannot create scratch directory"
+# EXIT cleans up. INT and TERM must end the run with a failure status: a trap
+# that only cleans up lets the script carry on and possibly report "ok".
+trap 'rm -rf "$TMP"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 STATUS=0
 note_fail() { STATUS=1; }

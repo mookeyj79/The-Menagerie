@@ -184,3 +184,71 @@ def test_gitleaksignore_file_is_not_honoured(repo):
                f"{commit}:docs/example.txt:password-not-placeholder:1\ndocs/example.txt:password-not-placeholder:1\n")
     repo.commit()
     assert repo.gate("--all").code != 0
+
+
+# ---- placeholders: exempted as whole tokens, not by first character -------
+
+def _placeholder_char_shapes():
+    """A value that only starts like a placeholder ($, #, <, {) is still a secret."""
+    return [
+        ("dollar", "Terraform/main.tf", lambda v: f"  cipassword = ${v}!x\n"),
+        ("hash", "docs/example.txt", lambda v: f"/user add name=a group=full password=#{v}\n"),
+        ("angle", "docs/example.txt", lambda v: f"/interface/wifi/security add pre-shared-key=<{v}\n"),
+        ("brace", "group_vars/db.yml", lambda v: "db_password: {" + v + "\n"),
+    ]
+
+
+@pytest.mark.parametrize("mode", ["--staged", "--all"])
+@pytest.mark.parametrize("name,path,build", _placeholder_char_shapes(),
+                         ids=[s[0] for s in _placeholder_char_shapes()])
+def test_secret_starting_with_a_placeholder_character_still_fails(repo, mode, name, path, build):
+    v = rnd(16)
+    _mk(repo, mode, path, build(v))
+    r = repo.gate(mode)
+    assert r.code != 0, f"{name} passed the gate"
+    assert v not in r.text
+
+
+@pytest.mark.parametrize("mode", ["--staged", "--all"])
+def test_whole_token_placeholders_pass(repo, mode):
+    _mk(repo, mode, "docs/example.txt",
+        "/user add name=a group=full password=<PLACEHOLDER>\n"
+        "/user add name=b group=full password=${ADMIN_PW}\n"
+        "/interface/wifi/security add pre-shared-key=$WIFI_PSK\n"
+        "db_password: {{ vault_db_password }}\n"
+        '  cipassword = "${var.pw}"\n'
+        "$VaultToken = $env:VAULT_TOKEN\n"
+        '"X-Vault-Token" = $VaultToken\n'
+        "token=$(cat /run/secrets/token)\n"
+        'leak = f"token = {fake}\\n"\n')
+    r = repo.gate(mode)
+    assert r.code == 0, r.text
+
+
+def test_default_rules_still_scan_reviewed_test_paths(repo):
+    # The test-suite path exception covers the custom rules only.
+    _mk(repo, "--all", "Scripts/gate/tests/test_extra.py", "pat = 'glpat-" + rnd(20) + "'\n")
+    r = repo.gate("--all")
+    assert r.code != 0, r.text
+    assert "Scripts/gate/tests/test_extra.py" in r.text
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX signals")
+def test_terminate_stops_the_gate_with_a_failure(repo, tmp_path):
+    import signal
+    import time
+
+    repo.write("README.md", "hello\n")
+    repo.commit()
+    slow = tmp_path / "slow-gitleaks"
+    slow.write_text("#!/bin/sh\nsleep 3\nexit 0\n")
+    slow.chmod(0o755)
+    e = dict(os.environ, GATE_GITLEAKS=str(slow))
+    p = subprocess.Popen([sh_exe(), str(GATE_DIR / "gate.sh"), "--all"], cwd=repo.root,
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=e)
+    time.sleep(1)
+    p.send_signal(signal.SIGTERM)  # the gate only, as a CI cancel or kill would
+    out = p.communicate(timeout=60)[0].decode(errors="replace")
+    # 143 = ended by TERM; carrying on after cleanup gives some other status
+    assert p.returncode == 143, out
+    assert "gate: ok" not in out
