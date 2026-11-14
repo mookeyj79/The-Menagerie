@@ -1,0 +1,35 @@
+# Test fixture for modules/design.
+openbao:
+  address: https://192.0.2.200:8200
+dns:
+  nameservers: [192.0.2.53]
+  search_domain: example.lan
+clusters:
+  pve-a:
+    api_url: https://192.0.2.10:8006
+    bridge: vmbr0
+    cicustom: vendor=local:snippets/ci.yaml
+    nodes:
+      hosta1: node-1
+      pve-a: node-2
+    storage: local-lvm
+    template: debian-cloud
+    tls_insecure: true
+    token_path: secret/proxmox/pve-a
+    vmid_base: 100000
+  pve-b:
+    api_url: https://192.0.2.11:8006
+    bridge: vmbr1
+    cicustom: vendor=local:snippets/ci.yaml
+    dns:
+      nameservers: [198.51.100.53]
+    nodes:
+      hostb1: node-b
+    storage: local-zfs
+    template: debian-cloud
+    token_path: secret/proxmox/pve-b
+    vmid_base: 0
+vms:
+  vm2:
+    template: special-template
+    vmid: 4242
