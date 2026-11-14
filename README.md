@@ -144,7 +144,7 @@ terraform init -backend=false
 terraform test
 ```
 
-The [gate workflow](.github/workflows/gate.yml) runs `gate.sh --all` on every push and pull request, and weekly. It installs gitleaks and SOPS with pinned checksums, and the Python packages from the hash-pinned [`.github/gate-requirements.txt`](.github/gate-requirements.txt).
+The [gate workflow](.github/workflows/gate.yml) runs `gate.sh --all` on every push and pull request, and weekly. The [tests workflow](.github/workflows/tests.yml) runs pytest and `terraform test` on every push and pull request. Both install their tools (gitleaks, SOPS, Terraform) with pinned checksums, and the Python packages from the hash-pinned [`.github/gate-requirements.txt`](.github/gate-requirements.txt) and [`.github/test-requirements.txt`](.github/test-requirements.txt).
 
 Shell scripts must keep LF line endings: they run on Linux hosts, though the repo is edited on Windows too. Design decisions are recorded in [`docs/adr/`](docs/adr/).
 
