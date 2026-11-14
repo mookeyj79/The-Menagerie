@@ -2,11 +2,11 @@
 # fw_groups.yml - Firewall/ACL address-list group definitions (MEMBERSHIP ONLY)
 # ============================================================================
 # Answers exactly one question: "what belongs to this name?" No awareness of
-# how a group is used downstream. Three other files consume these names:
+# how a group is used downstream. Two other files consume these names:
 #
-#   fw_rules.yml         - network policy (RouterOS filter chains, Cisco ACLs)
+#   fw_rules.yml         - network policy (router filter chains, router3's
+#                          ACL, and each managed Linux host's nftables)
 #   bastion_access.yml   - identity policy (who may reach what via bastion1)
-#   proxy_allowlist.yml  - application policy (domains reachable via bastion1's proxy)
 #
 # `category` (zone | role) is documentation only, not an enforced type.
 #
@@ -26,7 +26,8 @@
 #     vlan: <name> | [<name>, ...]
 #                  - all subnets under the named vlans.yml VLAN(s)
 #     role: <value>
-#                  - all systems.yml entries whose `role:` field matches
+#                  - all systems.yml entries whose `role:` field matches,
+#                    excluding state: decommissioned
 #
 #   members      : list of short-form strings or long-form mappings.
 #
@@ -54,169 +55,306 @@
 groups:
 
   # ==========================================================================
-  # Zone groups - VLAN-derived
+  # Zone groups - VLAN-derived (one per zone VLAN, issue #64)
   # ==========================================================================
 
   - name: Architecture
     category: zone
-    description: All router-to-router OSPF point-to-point links
+    description: Router-to-router point-to-point links
     derive_from:
-      vlan: [architecture-1, architecture-2, architecture-3]
+      vlan: [architecture-1, architecture-2]
 
-  - name: DMZ_Servers
+  - name: DMZ
     category: zone
-    description: Public-facing service hosts
+    description: Public entry point and the DMZ K3s cluster
     derive_from:
-      vlan: dmz-servers
+      vlan: dmz
 
-  - name: Internal_Servers
+  - name: RetroNet
     category: zone
-    description: Core internal infrastructure services
+    description: Retro computers and consoles; untrusted, internet-only
     derive_from:
-      vlan: internal-servers
+      vlan: retronet
 
-  - name: Internal_Users
+  - name: Central_Servers
     category: zone
-    description: Trusted user workstations and personal devices
+    description: Bootstrap-tier services and file1
     derive_from:
-      vlan: internal-users
+      vlan: central-servers
 
-  - name: Internal_Guest_Network
+  - name: App_Servers
     category: zone
-    description: Guest wireless; isolated from internal services
+    description: App-Servers K3s cluster nodes
     derive_from:
-      vlan: internal-guests
+      vlan: app-servers
 
-  - name: Internal_Smart_Home
+  - name: DevOps
     category: zone
-    description: IoT devices, smart home hubs
+    description: GitLab and its runners
     derive_from:
-      vlan: internal-smarthome
+      vlan: devops
 
-  - name: Internal_Devices
+  - name: Security
+    category: zone
+    description: Security Onion, CrowdSec LAPI, Prometheus and Grafana
+    derive_from:
+      vlan: security
+
+  - name: Users
+    category: zone
+    description: Household workstations and personal devices
+    derive_from:
+      vlan: users
+
+  - name: Guest
+    category: zone
+    description: Guest Wi-Fi
+    derive_from:
+      vlan: guest
+
+  - name: Devices
     category: zone
     description: Printers and shared peripherals
     derive_from:
-      vlan: internal-devices
+      vlan: devices
 
-  - name: Internal_RetroNet
+  - name: Fabrication
     category: zone
-    description: Retro computers and legacy gaming consoles, dialup-accessible
+    description: 3D printers, laser, CNC and vinyl cutter (Devices zone, own VLAN)
     derive_from:
-      vlan: internal-retronet
+      vlan: fabrication
 
-  - name: Internal_Surveillance
+  - name: Smart_Home
     category: zone
-    description: Surveillance cameras and NVR
+    description: Smart home devices and hubs
     derive_from:
-      vlan: internal-surveillance
+      vlan: smart-home
 
-  - name: Internal_DevOps
+  - name: Surveillance
     category: zone
-    description: Internal CI/CD runners and platform tooling
+    description: Cameras and NVR
     derive_from:
-      vlan: internal-devops
+      vlan: surveillance
 
   - name: Hardware_Management
     category: zone
-    description: Out-of-band management for routers, switches, firewalls, APs
+    description: Management for routers, switches and access points
     derive_from:
       vlan: hardware-management
 
   - name: Server_Management
     category: zone
-    description: Out-of-band management for servers and hypervisors
+    description: Management for servers and hypervisors
     derive_from:
       vlan: server-management
 
   - name: Power_Management
     category: zone
-    description: PDU and UPS coordination network
+    description: NUT and the PDU
     derive_from:
       vlan: power-management
 
-  - name: Emergency_Console_Access
-    category: role
-    description: Off-bridge break-glass console port; one per router, never routed
+  - name: Internal
+    category: zone
+    description: Every router2 zone in one entry
     members:
-      - cidr: 10.9.11.0/29
-        comment: Reused identically on every router's off-bridge port; never routed or advertised
-    notes: |
-      Router3 has no equivalent - it uses its physical RS-232 console
-      (line con 0) instead of an IP-based off-bridge segment.
+      - cidr: 192.168.16.0/20
+        comment: VLANs 16-31 by design; peer subnets sit outside it on purpose
 
   # ==========================================================================
-  # Role groups - infra hosts
+  # Not zones: break-glass and the household tailnet (issues #81, #146)
   # ==========================================================================
+
+  - name: Emergency_Console_Access
+    category: role
+    description: Off-bridge break-glass port; one per hEX, never routed
+    members:
+      - cidr: 10.9.11.0/29
+        comment: Reused identically on each hEX's off-bridge port; never routed or advertised
+    notes: |
+      Router3 uses its RS-232 console and the ICX switches their console
+      ports instead of an IP-based off-bridge segment.
+
+  - name: Remote_Users
+    category: role
+    description: Household tailnet devices reaching home through tailgw1, split tunnel
+    members:
+      - cidr: 100.64.0.0/10
+        comment: Tailscale's address range; family and the owner's user devices away from home
+    notes: |
+      Issue #146. tailgw1 forwards without address translation, so remote users
+      arrive at router2 on VLAN20 with their tailnet address, and router2's
+      static route sends replies back through tailgw1. Router2 accepts this
+      range only from tailgw1; the relay's Headscale tailnet uses the same
+      range on k3s-dmz1's tailscale0 but never routes it, so it can't collide.
+      Which tailnet devices may use tailgw1 is set by the tailnet access rules.
+
+  - name: Remote_Admins
+    category: role
+    description: The owner's admin laptops on the household tailnet, reaching bastion1's SSH only
+    members: []
+    notes: |
+      Issue #146. Not a router group: admin laptops reach bastion1's tailscale0
+      inside the tunnel, so no router sees or filters the traffic. Enforced by
+      the tailnet access rules (Infra repo, OpenTofu's Tailscale provider),
+      which let only devices tagged as admin laptops reach bastion1 on TCP 22,
+      and by bastion1's host firewall on tailscale0. Admin laptops never use
+      tailgw1, and no device is both an admin laptop and a remote user. Kept
+      here so the policy has one name in bastion_access.yml.
+
+  - name: Household_Tailnet
+    category: role
+    description: House machines on the household tailnet (hosted Tailscale) that dial out from a router-filtered zone
+    members:
+      - host: bastion1
+        interface: eth0.101
+      - host: file1
+        interface: eth0.16
+    notes: |
+      Issue #146. tailgw1 is also a member of the tailnet but sits in Users,
+      whose internet-any already covers it. backup1 is offsite. Separate from
+      the relay's Headscale tailnet (issue #148).
+
+  - name: Tailscale_Service
+    category: role
+    description: Tailscale's coordination servers and DERP relays the household tailnet dials out to
+    members: []
+    notes: |
+      A RouterOS address list built from DNS names, like Named_Outbound:
+      controlplane, login, log and console.tailscale.com, plus each
+      derpN-all.tailscale.com in the DERP map
+      (controlplane.tailscale.com/derpmap/default), rendered by Ansible.
+      Tailscale recommends allowing *:443 because the DERP set grows; a
+      region missing from the list only loses that relay, an accepted risk.
+      Source: tailscale.com/kb/1082/firewall-ports.
+
+  # ==========================================================================
+  # Role groups - Central-Servers services
+  # ==========================================================================
+
+  - name: Resolvers
+    category: role
+    description: Unbound resolvers serving .lan, .man and filtered public names
+    members:
+      - host: dns1
+      - host: file1
+        interface: eth0.16
+        comment: Second Unbound as a TrueNAS app until dns2 is bought
 
   - name: CAs
     category: role
-    description: Internal certificate authority
+    description: step-ca intermediate
     members:
       - host: ca1
 
+  - name: Secrets
+    category: role
+    description: Secrets management host (OpenBao)
+    members:
+      - host: bao1
+
+  - name: Directory
+    category: role
+    description: Samba AD domain controllers
+    members:
+      - host: dc1
+
+  - name: SSO
+    category: role
+    description: Authelia
+    members:
+      - host: sso1
+
   - name: FileServers
     category: role
-    description: SMB/Syncthing/shared-storage host
+    description: file1's Central-Servers interface (UI and SSH, plus the routed file, database and REST-server exceptions)
     members:
       - host: file1
+        interface: eth0.16
 
-  - name: Vaults
+  - name: FileServer_Storage
     category: role
-    description: Secrets management host
+    description: file1's Storage VLAN interface (SMB, NFS, databases, REST server)
     members:
-      - host: vault1
+      - host: file1
+        interface: storage
 
-  - name: DevOps
+  # ==========================================================================
+  # Role groups - clusters, pipeline, security
+  # ==========================================================================
+
+  - name: DMZ_Nodes
     category: role
-    description: GitLab CE / CI-CD platform host
+    description: DMZ K3s cluster nodes; the public entry point listens here
+    members:
+      - host: k3s-dmz1
+
+  - name: App_Nodes
+    category: role
+    description: App-Servers K3s cluster nodes; the internal proxy listens here
+    members:
+      - host: k3s-app1
+        interface: eth0
+
+  - name: GitLab
+    category: role
+    description: GitLab CE
     members:
       - host: devops1
 
-  - name: Ingress
+  - name: Runners
     category: role
-    description: Reverse-proxy/ingress hosts
+    description: GitLab runners; the pipeline's deployment source
     members:
-      - host: ingress1
-        comment: DMZ-facing
-      - host: ingress2
-        comment: Internal-facing, Authentik identity plane
+      - host: runner1
 
-  - name: Printers
+  - name: Log_Collectors
     category: role
-    description: Physical 2D print devices
+    description: Named log and signal inputs in Security (Elastic Agent/Fleet, syslog, CrowdSec LAPI)
     members:
-      - host: printer1
-      - host: printer2
+      - host: secmon1
+        interface: eth0
+      - host: crowdsec1
 
-  - name: CNCs
+  - name: Metrics
     category: role
-    description: 3D printers, resin printers, laser cutter, CNC mill, vinyl cutter
+    description: Prometheus; pulls exporter ports in each zone
     members:
-      - host: printfil1
-      - host: printfil2
-      - host: printres1
-      - host: printres2
-      - host: laser1
-      - host: cnc1
-      - host: cutter1
+      - host: metrics1
+
+  - name: NUT
+    category: role
+    description: NUT server and start-order runner
+    members:
+      - host: nut1
+
+  # ==========================================================================
+  # Role groups - infrastructure
+  # ==========================================================================
 
   - name: Bastions
     category: role
-    description: Identity-aware SSH proxy hosts; sole path for admin access and management-plane internet egress
+    description: The only admin path
     members:
       - host: bastion1
-        interface: eth0.16
-        comment: Internal-servers plane
-      - host: bastion1
         interface: eth0.101
-        comment: Hardware-management plane
+        comment: Hardware-management leg; the SSH address
       - host: bastion1
         interface: eth0.102
-        comment: Server-management plane
+        comment: Server-management leg
+      - host: bastion1
+        interface: eth0.103
+        comment: Power-management leg
     notes: |
       Single-host group. Add a second bastion here if/when a failover host
       exists.
+
+  - name: Bastion_SSH
+    category: role
+    description: The bastion's one SSH address, the only one Users and remote admins reach
+    members:
+      - host: bastion1
+        interface: eth0.101
 
   - name: Hypervisors
     category: role
@@ -224,11 +362,44 @@ groups:
     derive_from:
       role: hypervisor
 
+  - name: Hypervisor_pve5
+    category: role
+    description: pve5's Proxmox API, which NUT uses to start and stop VMs
+    members:
+      - host: pve5
+        interface: eth0.102
+
   - name: Routers
     category: role
     description: Network device control plane
     derive_from:
       role: router
+
+  - name: Untrusted_Devices
+    category: role
+    description: RetroNet devices managed through the bastion over the routed path
+    members:
+      - host: router3
+        interface: GigabitEthernet1/0.5
+      - host: ap2
+      - host: switch3
+
+  # ==========================================================================
+  # Role groups - devices
+  # ==========================================================================
+
+  - name: Printers
+    category: role
+    description: Printers; Users and Guest reach them by address
+    members:
+      - host: printer1
+      - host: printer2
+
+  - name: Fabrication_Machines
+    category: role
+    description: Fabrication machines Users may reach
+    derive_from:
+      role: cnc
 
   # ==========================================================================
   # Role groups - unmanaged devices (literal IPs; no systems.yml presence)
@@ -236,42 +407,118 @@ groups:
 
   - name: LEDs
     category: role
-    description: Smart LED strips
+    description: Smart LED strips Users may reach
     members:
-      - cidr: 192.168.19.15
+      - cidr: 192.168.24.15
         comment: led-strip1
-      - cidr: 192.168.19.16
+      - cidr: 192.168.24.16
         comment: led-strip2
-      - cidr: 192.168.19.17
+      - cidr: 192.168.24.17
         comment: led-strip3
-      - cidr: 192.168.19.18
+      - cidr: 192.168.24.18
         comment: led-strip4
 
   - name: Sunshine_Sources
     category: role
-    description: Hosts permitted to stream via Sunshine
+    description: Users hosts permitted to stream via Sunshine
     members:
-      - cidr: 192.168.17.3
+      - cidr: 192.168.20.3
         comment: Desky (Ethernet)
-      - cidr: 192.168.17.4
+      - cidr: 192.168.20.4
         comment: KellysKomputer (Ethernet)
-      - cidr: 192.168.17.5
+      - cidr: 192.168.20.5
         comment: KellysKomputer (WiFi)
-      - cidr: 192.168.17.7
+      - cidr: 192.168.20.7
         comment: Razzy (Core Ethernet)
-      - cidr: 192.168.17.8
+      - cidr: 192.168.20.8
         comment: Razzy (Ethernet)
-      - cidr: 192.168.17.9
+      - cidr: 192.168.20.9
         comment: Razzy (WiFi)
+    notes: DHCP reservations below the pool; last octets kept from the old Users VLAN.
 
   - name: Sunshine_Targets
     category: role
-    description: TV-class devices that receive Sunshine streams
+    description: Smart Home TVs that receive Sunshine streams
     members:
-      - cidr: 192.168.19.30
+      - cidr: 192.168.24.30
         comment: Smart-TV2 (Office)
-      - cidr: 192.168.19.31
-      - cidr: 192.168.19.66
+      - cidr: 192.168.24.31
+        comment: TV, name not recorded
+      - cidr: 192.168.24.32
+        comment: TV formerly on router3's Smart Home subnet (192.168.19.66)
+
+  - name: Home_Assistant
+    category: role
+    description: Home Assistant, the smart home hub; Users reach it only through the internal proxy
+    members:
+      - host: ha1
+
+  - name: NVR
+    category: role
+    description: The NVR host (Frigate, Mosquitto); the one Surveillance machine that reaches outside the zone
+    members:
+      - host: nvr1
+    notes: |
+      Part of the Surveillance bundle, an optional upgrade (issue #98). The rules naming this
+      group render only once the bundle is bought. Cameras are never members: they reach
+      nothing outside the zone.
+
+  # ==========================================================================
+  # Public resolvers and named outbound destinations
+  # ==========================================================================
+
+  - name: Public_Resolvers
+    category: role
+    description: Quad9 and Cloudflare; the only DNS Guest, RetroNet and DMZ reach
+    members:
+      - cidr: 9.9.9.9
+        comment: Quad9
+      - cidr: 149.112.112.112
+        comment: Quad9
+      - cidr: 1.1.1.1
+        comment: Cloudflare
+      - cidr: 1.0.0.1
+        comment: Cloudflare
+
+  - name: Named_Outbound
+    category: role
+    description: Domains Central-Servers, Security, Management and the NVR host may reach
+    members: []
+    notes: |
+      A RouterOS address list built from DNS names (issue #64), so it has no
+      fixed members here. Starts with Debian mirrors and Backblaze B2; each service adds its domains when it is built. The NVR host
+      adds Frigate's image registry (ghcr.io; issue #98). DNS-name
+      lists can miss CDN addresses, an accepted risk.
+
+  - name: Cloudflare_Tunnel
+    category: role
+    description: Cloudflare Tunnel edge that cloudflared in the DMZ connects out to
+    members: []
+    notes: |
+      A RouterOS address list built from region1.v2.argotunnel.com and
+      region2.v2.argotunnel.com (issue #93), like Named_Outbound, so it has
+      no fixed members here.
+
+  - name: Relay
+    category: role
+    description: relay1, the Linode VPS that k3s-dmz1's Tailscale client dials out to
+    members:
+      - host: relay1
+    notes: |
+      Issue #148. A RouterOS address list holding relay1's public address,
+      which Linode assigns when OpenTofu creates the VPS.
+
+  - name: Friend_Countries
+    category: role
+    description: Address ranges of the owner's country; the only sources relay1's Traefik accepts for watch
+    members: []
+    notes: |
+      Issue #111, premise: every friend watches from the owner's country.
+      Rendered by the pipeline each month from a free no-account country list
+      such as DB-IP Lite (CC BY 4.0) into the TCP IPAllowList on relay1's
+      watch route (issue #148), so it has no fixed members here and no router
+      rule uses it. A stale list fails safe: a friend on a newly assigned
+      range is refused until the next refresh.
 
   # ==========================================================================
   # Cross-cutting groups
@@ -279,9 +526,10 @@ groups:
 
   - name: RFC1918_Private
     category: role
-    description: All private address space; deny-by-default target for untrusted-segment ACLs
+    description: All private address space; router3's backstop target and CrowdSec's allowlist
     members:
       - cidr: 10.0.0.0/8
+      - cidr: 172.16.0.0/12
       - cidr: 192.168.0.0/16
 
   - name: PortScanners

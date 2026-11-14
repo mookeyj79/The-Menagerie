@@ -1,9 +1,16 @@
 # =====================================================================================================
 # vlans.yml
 # =====================================================================================================
+# The decided network design, from "How zones are enforced: edge, routers, firewalls" (issue #64),
+# with the Storage VLAN from "Observability and SIEM design" (issue #71). The routers do not run this
+# yet: Phase 1 rebuilds the live network in place. What each router runs today is in its `live:` note
+# in systems.yml, never here.
+#
 # Schema:
 #   name        : short kebab-case identifier (used for cross-referencing)
 #   description : human-readable purpose
+#   zone        : security zone from the Security zone model (issue #63)
+#   state       : present | planned. `present` only once the routers run it as described here.
 #   dhcp         : { enabled, pool, lease_time } — top-level default; a subnet
 #                  entry may override this if one router's segment differs
 #                  (e.g. no DHCP on a transit-only subnet).
@@ -29,36 +36,47 @@
 #                 dhcp              : optional; overrides the VLAN-level dhcp
 #                                     block for this specific subnet.
 #                                     Default: .enabled: false
+#
+# Addressing: a zone VLAN's subnet follows its ID (192.168.<id>.0). Every router2 zone sits inside
+# 192.168.16.0/20, so "anything internal" is one entry. Client zones get DHCP from their gateway
+# router; servers and Management use static addresses.
+# Not VLANs, so not listed here: the household tailnet's 100.64.0.0/10 (Remote_Users, routed by
+# router2 to tailgw1, issue #146) and each hEX's break-glass port (10.9.11.0/29, never routed).
 # =====================================================================================================
 
 vlans:
   # ---------------------------------------------------------------------------------------------------
-  # Architecture
+  # Router links
   # ---------------------------------------------------------------------------------------------------
   - name: architecture-1
-    description: OSPF point-to-point between router1 and router2
+    description: Authenticated OSPF point-to-point between router1 and router2
+    zone: Architecture
+    state: planned
     id: 301
+    notes: Zone VLANs are passive in OSPF; only this link forms an adjacency.
     subnets:
       - cidr: 192.168.3.0/30
 
   - name: architecture-2
-    description: OSPF point-to-point between router1 and router3
+    description: Static-routed point-to-point between router1 and router3
+    zone: Architecture
+    state: planned
     id: 302
+    notes: |
+      Router3 stays out of OSPF so it can't advertise false routes. It has a static default via
+      router1, and router1 has a static route to RetroNet. Router3 does no NAT.
     subnets:
       - cidr: 192.168.3.4/30
 
-  - name: architecture-3
-    description: OSPF point-to-point between router2 and router3
-    id: 303
-    subnets:
-      - cidr: 192.168.3.8/30
-
   # ---------------------------------------------------------------------------------------------------
-  # Management
+  # Management (three VLANs; nothing passes between them except from the bastion)
   # ---------------------------------------------------------------------------------------------------
   - name: hardware-management
-    description: Out-of-band management for routers, switches, firewalls, and access points
+    description: Management for routers, switches and access points
+    zone: Management
+    state: planned
     id: 101
+    notes: Router3 and ap2 are untrusted RetroNet devices with no interface here.
     subnets:
       - cidr: 10.0.1.0/28
         gateway_host: router1
@@ -66,12 +84,11 @@ vlans:
       - cidr: 10.0.1.16/28
         gateway_host: router2
         gateway_interface: VLAN101
-      - cidr: 10.0.1.32/28
-        gateway_host: router3
-        gateway_interface: FastEthernet2/0.101
 
   - name: server-management
-    description: Out-of-band management for servers and hypervisors (iLO, DRAC, IPMI)
+    description: Management for servers and hypervisors (iDRAC, Proxmox, TrueNAS UI)
+    zone: Management
+    state: planned
     id: 102
     subnets:
       - cidr: 10.0.2.0/28
@@ -82,7 +99,9 @@ vlans:
         gateway_interface: VLAN102
 
   - name: power-management
-    description: PDU and UPS coordination network
+    description: NUT and the PDU, so NUT reaches the PDU without a router
+    zone: Management
+    state: planned
     id: 103
     subnets:
       - cidr: 10.0.3.0/29
@@ -90,111 +109,188 @@ vlans:
         gateway_interface: VLAN103
 
   # ---------------------------------------------------------------------------------------------------
-  # DMZ
+  # router1 zones
   # ---------------------------------------------------------------------------------------------------
-  - name: dmz-servers
-    description: Public-facing service hosts
+  - name: dmz
+    description: Public entry point and the DMZ K3s cluster
+    zone: DMZ
+    state: planned
     id: 4
+    notes: DNS goes straight to Quad9 and Cloudflare, with no path inside.
     subnets:
       - cidr: 192.168.4.0/26
         gateway_host: router1
         gateway_interface: VLAN4
 
   # ---------------------------------------------------------------------------------------------------
-  # Internal
+  # router3 zone
   # ---------------------------------------------------------------------------------------------------
-  - name: internal-servers
-    description: Core internal infrastructure services
+  - name: retronet
+    description: Retro computers and consoles; internet-only, with in-house dial-up
+    zone: RetroNet
+    state: planned
+    id: 5
+    notes: |
+      Served by router3 (Cisco 3825), which also handles PPP over its FXO/FXS ports. The outbound
+      allowlist is enforced on router1; router3 keeps only a backstop rule blocking private addresses.
+    subnets:
+      - cidr: 192.168.5.0/26
+        dhcp:
+          enabled: true
+          lease_time: 6h
+          pool: 192.168.5.50-192.168.5.62
+        gateway_host: router3
+        gateway_interface: GigabitEthernet1/0.5
+
+  # ---------------------------------------------------------------------------------------------------
+  # router2 zones (all inside 192.168.16.0/20)
+  # ---------------------------------------------------------------------------------------------------
+  - name: central-servers
+    description: Bootstrap-tier services (DNS, step-ca, OpenBao, Samba AD, Authelia) and file1
+    zone: Central-Servers
+    state: planned
     id: 16
     subnets:
-      - cidr: 192.168.16.0/28
+      - cidr: 192.168.16.0/27
         gateway_host: router2
         gateway_interface: VLAN16
 
-  - name: internal-users
-    description: Trusted user workstations and personal devices
+  - name: app-servers
+    description: App-Servers K3s cluster nodes
+    zone: App-Servers
+    state: planned
     id: 17
     subnets:
-      - cidr: 192.168.17.0/24
-        dhcp:
-          enabled: true
-          lease_time: 24h
-          pool: 192.168.17.128-192.168.17.254
+      - cidr: 192.168.17.0/26
         gateway_host: router2
         gateway_interface: VLAN17
 
-  - name: internal-guests
-    description: Guest wireless; isolated from internal services
+  - name: devops
+    description: GitLab and its runners
+    zone: DevOps
+    state: planned
     id: 18
     subnets:
-      - cidr: 192.168.18.0/24
-        dhcp:
-          enabled: true
-          lease_time: 6h
-          pool: 192.168.18.10-192.168.18.254
+      - cidr: 192.168.18.0/28
         gateway_host: router2
         gateway_interface: VLAN18
 
-  - name: internal-smarthome
-    description: IoT devices, smart home hubs
+  - name: security
+    description: Security Onion, CrowdSec LAPI, Prometheus and Grafana
+    zone: Security
+    state: planned
     id: 19
+    notes: Not mirrored to Security Onion; it is the collector.
     subnets:
-      - cidr: 192.168.19.0/26
-        dhcp:
-          enabled: true
-          lease_time: 6h
-          pool: 192.168.19.50-192.168.19.62
+      - cidr: 192.168.19.0/28
         gateway_host: router2
         gateway_interface: VLAN19
-      - cidr: 192.168.19.64/28
-        dhcp:
-          enabled: true
-          lease_time: 6h
-          pool: 192.168.19.70-192.168.19.78
-        gateway_host: router3
-        gateway_interface: VLAN19
 
-  - name: internal-devices
-    description: Printers and shared peripherals
+  - name: users
+    description: Household workstations and personal devices
+    zone: Users
+    state: planned
     id: 20
     subnets:
-      - cidr: 192.168.20.0/26
+      - cidr: 192.168.20.0/24
         dhcp:
           enabled: true
-          lease_time: 6h
-          pool: 192.168.20.50-192.168.20.62
+          lease_time: 24h
+          pool: 192.168.20.128-192.168.20.254
         gateway_host: router2
         gateway_interface: VLAN20
 
-  - name: internal-retronet
-    description: Retro computers and legacy gaming consoles, dialup-accessible
+  - name: guest
+    description: Guest Wi-Fi; internet plus the two printers by address
+    zone: Guest
+    state: planned
     id: 21
-    notes: Served by Router3 (Cisco 3825); also handles PPP over async modem.
+    notes: Client isolation on. DNS goes straight to Quad9 and Cloudflare.
     subnets:
-      - cidr: 192.168.21.0/26
+      - cidr: 192.168.21.0/24
         dhcp:
           enabled: true
           lease_time: 6h
-          pool: 192.168.21.50-192.168.21.62
-        gateway_host: router3
+          pool: 192.168.21.10-192.168.21.254
+        gateway_host: router2
         gateway_interface: VLAN21
 
-  - name: internal-surveillance
-    description: Surveillance cameras and NVR
+  - name: devices
+    description: Printers and other shared peripherals
+    zone: Devices
+    state: planned
     id: 22
     subnets:
-      - cidr: 192.168.22.0/27
+      - cidr: 192.168.22.0/26
         dhcp:
           enabled: true
           lease_time: 6h
-          pool: 192.168.22.20-192.168.22.30
+          pool: 192.168.22.50-192.168.22.62
         gateway_host: router2
         gateway_interface: VLAN22
 
-  - name: internal-devops
-    description: Internal CI/CD runners and platform tooling
+  - name: fabrication
+    description: 3D printers now; laser, CNC and vinyl cutter once bought
+    zone: Devices
+    state: planned
     id: 23
+    notes: No internet. Only Users reach it.
     subnets:
-      - cidr: 192.168.23.0/29
+      - cidr: 192.168.23.0/27
         gateway_host: router2
         gateway_interface: VLAN23
+
+  - name: smart-home
+    description: Smart home devices and hubs
+    zone: Smart Home
+    state: planned
+    id: 24
+    notes: |
+      Client isolation on ap1, which can be turned off if devices need to talk to each other.
+      Home Assistant (ha1) sits here because device discovery is multicast (issue #98).
+    subnets:
+      - cidr: 192.168.24.0/26
+        dhcp:
+          enabled: true
+          lease_time: 6h
+          pool: 192.168.24.20-192.168.24.62
+        gateway_host: router2
+        gateway_interface: VLAN24
+
+  - name: surveillance
+    description: Cameras and the NVR host
+    zone: Surveillance
+    state: planned
+    id: 25
+    notes: |
+      Built in Phase 1, empty; the cameras and nvr1 are one optional upgrade (issue #98). The
+      cameras reach nothing outside the zone. The NVR host (nvr1) reaches only named update
+      domains (Debian, Frigate's image registry), Security's Log_Collectors and CrowdSec LAPI, the
+      resolvers, and file1's restic REST server. Users never reach the zone directly: the
+      internal proxy and ha1 are the only ways in, plus bastion and runner SSH to nvr1. Cameras
+      use IP addresses, not DNS. Ports untagged in VLAN 25 on switch2's second stack unit. Not
+      mirrored (video volume).
+    subnets:
+      - cidr: 192.168.25.0/27
+        dhcp:
+          enabled: true
+          lease_time: 6h
+          pool: 192.168.25.20-192.168.25.30
+        gateway_host: router2
+        gateway_interface: VLAN25
+
+  # ---------------------------------------------------------------------------------------------------
+  # Unrouted
+  # ---------------------------------------------------------------------------------------------------
+  - name: storage
+    description: 10G path between file1's storage port and each App-Servers node's second interface
+    zone: App-Servers
+    state: planned
+    id: 26
+    notes: |
+      Unrouted, no gateway, never mirrored (issue #71). SMB, NFS, the database apps and the restic
+      REST server listen on file1's interface here (issue #83); clients outside App-Servers use
+      file1's Central-Servers address instead (issue #107). ID 26 was set when the inventory took
+      the design; no ticket fixed it.
+    subnets:
+      - cidr: 192.168.26.0/28

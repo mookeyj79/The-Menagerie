@@ -1,15 +1,23 @@
 # ============================================================================
 # systems.yml - Single source of truth for every host and network device
 # ============================================================================
+# Holds the decided architecture (wayfinder map, issue #61). Live state is
+# kept apart: a device in service is `state: present`, but an interface it
+# does not run yet is `state: planned`, and what a router runs today until
+# Phase 1 rebuilds the network is in its `live:` note.
+#
 # Schema:
 #   hostname        short identifier, unique across the fleet
 #   ansible_roles   list of Ansible roles applied ON TOP of the base image
 #   description     one-line human-readable purpose
 #   hardware        model of off-the-shelf hardware
 #   host            parent hypervisor hostname or group name (type: vm only)
-#   interfaces      list of { name, ip_address, vlan, description }
+#   interfaces      list of { name, ip_address, vlan, description, state }
+#   live            what a present device runs today that differs from the
+#                   design; removed once Phase 1 makes it match
 #   notes           operational notes; block scalar `|` for multi-line
 #   os              OS identifier (e.g. Debian 13, routeros-7)
+#   owned           true | false | unknown (physical devices only)
 #   resources       { arch, cpu, ram_gb, storage_gb, gpu }
 #   role            broad function (hypervisor, router, server, identity, ...)
 #   state           present | planned | decommissioned
@@ -20,26 +28,37 @@
 #
 #   ansible_roles:
 #     Order-significant. Place dependencies first (common before docker_host
-#     before service-specific). Excludes roles baked into the base image
-#     (e.g. vault_agent per ADR-014); only role-specific additions appear here.
+#     before service-specific). Excludes roles baked into the base image;
+#     only role-specific additions appear here.
 #
 #   host:
 #     Reference to a hostname or group name defined in the `groups` block.
 #     Only valid on type: vm entries. Omit for physical hosts.
 #
+#   interfaces[].state:
+#     Optional; defaults to the system's state. `planned` on a present device
+#     means the device does not run this interface yet.
+#
+#   owned:
+#     Whether the hardware is physically owned today. Independent of state: a
+#     device can be owned but not yet in use. `owned: false` is the shopping
+#     list, never an assumption.
+#
 #   state:
 #     present        - exists, managed (Ansible targets it)
 #     planned        - declared but not yet built (Tofu sees it, Ansible skips)
-#     decommissioned - retained for history, excluded from rendering
+#     decommissioned - retired by a decision; kept so older docs that name it
+#                      still resolve. Carries no interfaces and is excluded
+#                      from rendering.
 # ============================================================================
 
 groups:
   - name: pve-dmz
-    description: Proxmox cluster dedicated to DMZ workloads.
-    hosts: [pve4, pve5, pve6, pve7]
+    description: Proxmox cluster for the DMZ side (one cluster per side, never joined).
+    hosts: [pve1, pve2, pve3, pve4]
   - name: pve-internal
-    description: Proxmox cluster dedicated to internal workloads.
-    hosts: [pve1, pve2, pve3]
+    description: Proxmox cluster for the internal side.
+    hosts: [pve5, pve6, pve7]
 
 systems:
 
@@ -48,95 +67,115 @@ systems:
   # ==========================================================================
 
   - hostname: ap1
-    description: Internal WiFi access point
+    description: Internal Wi-Fi access point; standalone, configured by hand
     hardware: TpLink EAP610
     interfaces:
       - name: main
         ip_address: 10.0.1.20
         vlan: hardware-management
+    notes: |
+      Carries four tagged networks: Users, Guest, Smart Home and Fabrication, each with its own
+      password and no RADIUS. Client isolation on Guest and Smart Home. No Omada controller.
     os: Omada 1.6.0
+    owned: true
     role: ap
     state: present
     type: network_device
 
   - hostname: ap2
-    description: RetroNet WiFi access point
+    description: RetroNet Wi-Fi access point; untrusted, managed through the bastion
     hardware: Linksys MR8300
     interfaces:
       - name: main
-        ip_address: 10.0.1.35
-        vlan: hardware-management
+        ip_address: 192.168.5.3
+        vlan: retronet
+    notes: Owned; whether it is in service is not confirmed. No interface in Management.
     os: OpenWrt 25
+    owned: true
     role: ap
     state: planned
     type: network_device
 
   - hostname: pdu1
-    description: Power Delivery unity
+    description: Switched PDU; NUT drives its outlets for the start order
     hardware: APC AP7901
     interfaces:
       - name: main
         ip_address: 10.0.3.3
         vlan: power-management
     os: AOS 3.9.4
+    owned: true
     role: pdu
     state: present
     type: network_device
 
   - hostname: switch1
-    description: DMZ Switch
+    description: DMZ switch; layer 2 only, no link to the internal switches
     hardware: Brocade ICX 6610
     interfaces:
       - name: management
         ip_address: 10.0.1.2
         vlan: hardware-management
+    notes: A PoE model (owner, 2026-11-10).
     os: FastIron OS 08.0.30u
+    owned: true
     role: switch
     state: present
     type: network_device
 
   - hostname: switch2
-    description: Internal Switch
+    description: Internal switch; mirrors eight VLANs to Security Onion
     hardware: Brocade ICX 6450 x2 (stacked)
     interfaces:
       - name: management
         ip_address: 10.0.1.18
         vlan: hardware-management
+    notes: |
+      Mirrors incoming traffic on central-servers, app-servers, devops, users, guest, devices,
+      fabrication and smart-home to one port cabled to pve5's 1G NIC (issue #71). VLAN mirroring on
+      the 6450 is an early proof; the fallback mirrors router2's port. The second stack unit has
+      24 ports set aside for Surveillance: the cameras and nvr1, untagged in VLAN 25 (owner,
+      2026-11-10; issue #123). Both stack units are PoE models, so the cameras need no
+      injectors (owner, 2026-11-10). Surveillance is not mirrored.
     os: FastIron OS 08.0.30u
+    owned: true
     role: switch
     state: present
     type: network_device
 
   - hostname: switch3
-    description: RetroNet Switch
+    description: RetroNet switch; untrusted, managed through the bastion
     hardware: Zyxel GS-1900-24
     interfaces:
       - name: management
-        ip_address: 10.0.1.34
-        vlan: hardware-management
+        ip_address: 192.168.5.4
+        vlan: retronet
     os: OpenWrt 25
+    owned: false
     role: switch
     state: planned
     type: network_device
 
   - hostname: switch4
-    description: Netgear POE Switch
+    description: Netgear PoE switch
     hardware: Netgear GS108PE
     interfaces:
       - name: management
         ip_address: 10.0.1.19
         vlan: hardware-management
     os: Netgear FW 2.06.24
+    owned: true
     role: switch
     state: present
     type: network_device
 
   - hostname: router1
-    description: Edge router; north/south internet, DMZ gateway
+    description: Edge router and hub of the star; DMZ gateway, all NAT, no inbound ports
     hardware: MikroTik Hex
     interfaces:
       - name: external_bridge
         ip_address: 192.168.2.2
+        description: Internet side, behind ispgw1 in passthrough; IPv6 off
       - name: VLAN101
         ip_address: 10.0.1.1
         vlan: hardware-management
@@ -151,15 +190,29 @@ systems:
         vlan: architecture-2
       - name: VLAN4
         ip_address: 192.168.4.1
-        vlan: dmz-servers
-    notes: OSPF router-id 192.168.254.1; originates default route.
+        vlan: dmz
+      - name: break-glass
+        ip_address: 10.9.11.1
+        description: Off-bridge port on 10.9.11.0/29, never routed; reaches only this router
+        state: planned
+    live: |
+      Runs the pre-#64 config: its VLAN302 link still joins OSPF with router3, and it has no
+      default-deny policy or break-glass port yet.
+    notes: |
+      Nothing listens or forwards on the WAN side: every path in is dialed out from inside (issues
+      #146, #148). Remote access is the household tailnet, not WireGuard here, and its traffic
+      reaches router1 only as outbound UDP from bastion1, file1 and tailgw1.
+      OSPF router-id 192.168.254.1 with router2 only; originates the default route. Static route to
+      RetroNet via router3. Enforces the RetroNet outbound allowlist. Five ports: ispgw1, router2,
+      router3, switch1 and break-glass.
     os: RouterOS 7
+    owned: true
     role: router
     state: present
     type: network_device
 
   - hostname: router2
-    description: MikroTik east/west internal distribution router
+    description: Internal router; gateway for every zone except DMZ and RetroNet
     hardware: MikroTik Hex
     interfaces:
       - name: VLAN101
@@ -174,109 +227,118 @@ systems:
       - name: VLAN301
         ip_address: 192.168.3.2
         vlan: architecture-1
-      - name: VLAN303
-        ip_address: 192.168.3.9
-        vlan: architecture-3
       - name: VLAN16
         ip_address: 192.168.16.1
-        vlan: internal-servers
+        vlan: central-servers
+        state: planned
       - name: VLAN17
         ip_address: 192.168.17.1
-        vlan: internal-users
+        vlan: app-servers
+        state: planned
       - name: VLAN18
         ip_address: 192.168.18.1
-        vlan: internal-guests
+        vlan: devops
+        state: planned
       - name: VLAN19
         ip_address: 192.168.19.1
-        vlan: internal-smarthome
+        vlan: security
+        state: planned
       - name: VLAN20
         ip_address: 192.168.20.1
-        vlan: internal-devices
+        vlan: users
+        state: planned
+      - name: VLAN21
+        ip_address: 192.168.21.1
+        vlan: guest
+        state: planned
       - name: VLAN22
         ip_address: 192.168.22.1
-        vlan: internal-surveillance
+        vlan: devices
+        state: planned
       - name: VLAN23
         ip_address: 192.168.23.1
-        vlan: internal-devops
-    notes: OSPF router-id 192.168.254.2.
+        vlan: fabrication
+        state: planned
+      - name: VLAN24
+        ip_address: 192.168.24.1
+        vlan: smart-home
+        state: planned
+      - name: VLAN25
+        ip_address: 192.168.25.1
+        vlan: surveillance
+        state: planned
+      - name: break-glass
+        ip_address: 10.9.11.1
+        description: Off-bridge port on 10.9.11.0/29, never routed; reaches only this router
+        state: planned
+    live: |
+      Runs the pre-#64 VLANs: 16 internal-servers, 17 internal-users, 18 internal-guests,
+      19 internal-smarthome, 20 internal-devices, 22 internal-surveillance and 23 internal-devops,
+      plus VLAN303 (192.168.3.9/30) to router3. Phase 1 renumbers them in place and recables the
+      router2-router3 link last.
+    notes: |
+      OSPF router-id 192.168.254.2.
+      Static route for 100.64.0.0/10 (the household tailnet, Remote_Users) via tailgw1 at
+      192.168.20.2, kept out of OSPF so router1 never learns it (issue #146). Accepts that source
+      only arriving on VLAN20 from tailgw1; from anywhere else it is spoofed and dropped.
     os: RouterOS 7
+    owned: true
     role: router
     state: present
     type: network_device
 
   - hostname: router3
-    description: Cisco 3825 - dialup/PPP handler, POTS bridge, RetroNet gateway
+    description: Cisco 3825; RetroNet gateway and dial-up only; untrusted
     hardware: Cisco 3825
     interfaces:
-      - name: Loopback0
-        ip_address: 192.168.254.3
-      - name: FastEthernet2/0.101
-        ip_address: 10.0.1.33
-        vlan: hardware-management
-        description: Management
       - name: GigabitEthernet0/0.302
         ip_address: 192.168.3.6
         vlan: architecture-2
-      - name: GigabitEthernet0/1.303
-        ip_address: 192.168.3.10
-        vlan: architecture-3
-      - name: GigabitEthernet1/0.19
-        ip_address: 192.168.19.65
-        vlan: internal-smarthome
-        description: Internal - Smart Home
-      - name: GigabitEthernet1/0.21
-        ip_address: 192.168.21.1
-        vlan: internal-retronet
-        description: Internal - RetroNet
+      - name: GigabitEthernet1/0.5
+        ip_address: 192.168.5.1
+        vlan: retronet
+        description: RetroNet
+        state: planned
+    live: |
+      Runs OSPF with Loopback0 192.168.254.3, a Management leg (FastEthernet2/0.101, 10.0.1.33),
+      a link to router2 (GigabitEthernet0/1.303, 192.168.3.10), a Smart Home subnet
+      (GigabitEthernet1/0.19, 192.168.19.65/28) and RetroNet as VLAN 21 (192.168.21.1/26).
+    notes: |
+      Has both FXO and FXS ports for dial-up. Out of OSPF with a static default; no NAT. Reached by
+      the bastion only over the routed path through router1; nothing from it back except replies.
+      Console over RS-232. IOS out of support since 2016, so treated as untrusted.
     os: Cisco IOS 15.1(4)m12a
+    owned: true
     role: router
     state: present
     type: network_device
 
   # ==========================================================================
-  # Firewalls
+  # Firewalls (optional upgrades)
   # ==========================================================================
 
   - hostname: fw1
-    description: Primary firewall; north/south traffic filtering
+    description: Optional faster replacement for router1
     hardware: Protectli Vault VP2440e
     interfaces:
       - name: management
         ip_address: 10.0.1.3
-    os: OPNsense 26
+        vlan: hardware-management
+    notes: Bought only if the router throughput proof fails. The VP2440 is discontinued; the VP2440e replaces it. OS chosen when bought.
+    owned: false
     role: firewall
     state: planned
     type: network_device
 
   - hostname: fw2
-    description: DMZ Firewall
-    hardware: Protectli Vault VP2440e
-    interfaces:
-      - name: management
-        ip_address: 10.0.1.4
-    os: OPNsense 26
-    role: firewall
-    state: planned
-    type: network_device
-
-  - hostname: fw3
-    description: Internal Network Firewall
+    description: Optional faster replacement for router2
     hardware: Protectli Vault VP2440e
     interfaces:
       - name: management
         ip_address: 10.0.1.21
-    os: OPNsense 26
-    role: firewall
-    state: planned
-    type: network_device
-
-  - hostname: fw4
-    description: Retronet Firewall
-    hardware: Protectli Vault VP2440e
-    interfaces:
-      - name: management
-        ip_address: 10.0.1.36
-    os: OPNsense 26
+        vlan: hardware-management
+    notes: Bought only if the router throughput proof fails. OS chosen when bought.
+    owned: false
     role: firewall
     state: planned
     type: network_device
@@ -287,46 +349,77 @@ systems:
 
   - hostname: bastion1
     ansible_roles: [common_arm, bastion]
-    description: Identity-aware SSH proxy for admin access
+    description: The only admin path; SSH with step-ca certificates, tunnelling onward
     hardware: Raspberry Pi 5
     interfaces:
-      - name: eth0.16
-        ip_address: 192.168.16.2
-        vlan: internal-servers
       - name: eth0.101
         ip_address: 10.0.1.22
         vlan: hardware-management
+        description: The address admins in Users SSH to
       - name: eth0.102
         ip_address: 10.0.2.23
         vlan: server-management
+      - name: eth0.103
+        ip_address: 10.0.3.4
+        vlan: power-management
+      - name: tailscale0
+        description: Household tailnet (hosted Tailscale); remote admins SSH here; address assigned by Tailscale
+        state: planned
     notes: |
-      Primary admin access point; no other hosts accept direct
-      SSH. Runs Tailscale client for remote access.
+      The owner's spare Pi 5. Doesn't forward between legs and runs a host firewall. Its own legs
+      reach router2-side devices when router2 is down. If SSH fails, the owner uses the console
+      cable directly. RAM not confirmed.
+      Remote admin access (issue #146): Tailscale runs on bastion1 itself and dials out (rules
+      household-tailnet-*). The tailnet access rules let only the owner's admin laptops reach its
+      SSH; admin traffic arrives inside the tunnel, so no router filters it, and the host firewall
+      on tailscale0 accepts TCP 22 only. Not a subnet router; Tailscale SSH off. Tailnet Lock is
+      signed from bastion1 and the owner's admin laptop. bastion1 also reaches backup1's SSH and
+      web UI over the tailnet. The path needs router1 (outbound), bastion1 and Tailscale's service,
+      not SSO, file1 or pve5.
     os: Raspbian Lite
+    owned: true
     resources:
       arch: arm64
       cpu: 4
-      ram_gb: 16
+      ram_gb: TBD
       storage_gb: 128
     role: server
     state: planned
     type: physical
 
   - hostname: file1
-    description: TrueNAS file server; SMB shares, Syncthing, AD-integrated home directories
+    description: TrueNAS file server, shared databases and backup hub
+    hardware: Dell PowerEdge R730xd
     interfaces:
       - name: eth0.16
         ip_address: 192.168.16.6
-        vlan: internal-servers
-        description: Shares interface
-      - name: eth0.102
-        ip_address: 10.0.2.21
-        vlan: server-management
-        description: TrueNAS UI and SSH
+        vlan: central-servers
+        description: Web UI and SSH (only here); routed, router-filtered file, database and REST-server exceptions
+      - name: storage
+        ip_address: 192.168.26.2
+        vlan: storage
+        description: 10G for App-Servers; SMB, NFS, database apps and the restic REST server listen here, never the UI or SSH
       - name: idrac
         ip_address: 10.0.2.22
         vlan: server-management
+      - name: tailscale0
+        description: Household tailnet via the TrueNAS Tailscale app; outbound to backup1 only; address assigned by Tailscale
+        state: planned
+    notes: |
+      Household tailnet (issue #146, Phase 3, with backup1): the TrueNAS Tailscale app dials out
+      (rules household-tailnet-*) and pushes a second restic copy of the Restore set to backup1's
+      append-only REST server. The tailnet access rules allow nothing in to file1; with no host
+      firewall, they are its only filter on that interface. Not a subnet router.
+      Runs TrueNAS and, as TrueNAS apps, shared Postgres 18, Redis and InfluxDB, a second Unbound
+      and chrony, the iDRAC fan controller and the restic REST server (append-only). It hosts no VMs.
+      Exports the library and downloads datasets read-only to k3s-dmz1 (issues #107, #116).
+      Protected by binding, not a host firewall (issues #83, #107): file services listen on both
+      interfaces, the UI and SSH on Central-Servers only, and the routers filter the Central-Servers
+      side. Pushes the Restore set to Backblaze B2.
+      Data disks: 8x 10 TB in RAIDZ2. Boot on the ~256 GB SSD; the 128 GB SSD is a SLOG.
+      NICs: 2x 10G SFP+ plus the original Ethernet NICs (count not confirmed).
     os: TrueNAS Scale 25
+    owned: true
     resources:
       arch: x86_64
       cpu: 16
@@ -336,64 +429,66 @@ systems:
     state: present
     type: physical
 
-  - hostname: ml1
-    ansible_roles: [common, docker_host, nvidia_runtime]
-    description: AI/ML GPU server
-    interfaces:
-      - name: eth0.16
-        ip_address: 192.168.16.8
-        vlan: internal-servers
-    os: Debian 13
-    resources:
-      arch: x86_64
-      cpu: TBD
-      gpu: 4x NVIDIA GTX 1660
-      ram_gb: TBD
-      storage_gb: TBD
-    role: server
-    state: present
-    type: physical
-
-  - hostname: ntp1
-    ansible_roles: [common_arm, ntp_server]
-    description: GPS-disciplined NTP server
+  - hostname: dns2
+    ansible_roles: [common_arm, unbound, chrony]
+    description: Second resolver and time server; optional upgrade
     hardware: Raspberry Pi 5
     interfaces:
-      - name: eth0.4
-        ip_address: 192.168.4.4
-        vlan: dmz-servers
+      - name: eth0
+        ip_address: 192.168.16.8
+        vlan: central-servers
+    notes: Replaces the second Unbound and chrony on file1 once bought.
     os: Raspbian Lite
+    owned: false
     resources:
       arch: arm64
       cpu: 4
-      ram_gb: 16
-      storage_gb: 128
+      ram_gb: 4
+      storage_gb: 32
+    role: server
+    state: planned
+    type: physical
+
+  - hostname: ml1
+    ansible_roles: [common, nvidia_runtime]
+    description: AI/ML GPU server; late-stage
+    notes: |
+      Planned as an NVIDIA GPU server, possibly a new dedicated build; specs below are placeholders.
+      The old mining rig (six AMD GPUs, status unknown) is not counted as available compute. Its
+      zone and address aren't decided.
+    os: Debian 13
+    owned: false
+    resources:
+      arch: x86_64
+      cpu: TBD
+      gpu: TBD
+      ram_gb: TBD
+      storage_gb: TBD
     role: server
     state: planned
     type: physical
 
   - hostname: nut1
     ansible_roles: [common_arm, nut_server]
-    description: Network UPS Tools server
+    description: NUT, PeaNUT and the start order
     hardware: Raspberry Pi 3
     interfaces:
-      - name: eth0.16
-        ip_address: 192.168.16.9
-        vlan: internal-servers
       - name: eth0.103
         ip_address: 10.0.3.2
         vlan: power-management
     notes: |
-      UPS coordinator. Manages staged shutdowns for the fleet via NUT clients
-      on every host and manages PDU.
+      USB to ups1. Runs the start order: PDU outlets for power, a Proxmox token limited to starting
+      and stopping VMs on pve5, and health checks on each stage. Chosen because it doesn't need a
+      PoE HAT. RAM not confirmed.
     os: Raspbian Lite
+    owned: true
     resources:
       arch: arm64
       cpu: 4
       ram_gb: 1
       storage_gb: 128
     role: infrastructure
-    state: planned
+    state: present
     type: physical
 
   # ==========================================================================
@@ -402,12 +497,100 @@ systems:
 
   - hostname: pve1
     ansible_roles: [common, proxmox_host]
-    description: Internal Proxmox hypervisor
+    description: DMZ Proxmox hypervisor; carries the DMZ K3s node
+    hardware: Custom build
+    interfaces:
+      - name: eth0.102
+        ip_address: 10.0.2.2
+        vlan: server-management
+    notes: 1 TB SSD, 1x 1G Ethernet; a 10G SFP+ NIC is planned, not owned. May be replaced by an M720Q someday.
+    os: Proxmox VE 9
+    owned: true
+    resources:
+      arch: x86_64
+      cpu: 4
+      ram_gb: 16
+      storage_gb: 1024
+    role: hypervisor
+    state: present
+    type: physical
+
+  - hostname: pve2
+    ansible_roles: [common, proxmox_host]
+    description: DMZ Proxmox hypervisor; optional upgrade
+    hardware: Lenovo ThinkCentre M720Q
+    interfaces:
+      - name: eth0.102
+        ip_address: 10.0.2.3
+        vlan: server-management
+    notes: Bought if public game servers don't fit pve1.
+    os: Proxmox VE 9
+    owned: false
+    resources:
+      arch: x86_64
+      cpu: 6
+      ram_gb: 32
+      storage_gb: 512
+    role: hypervisor
+    state: planned
+    type: physical
+
+  - hostname: pve3
+    ansible_roles: [common, proxmox_host]
+    description: DMZ Proxmox hypervisor; optional upgrade
+    hardware: Lenovo ThinkCentre M720Q
+    interfaces:
+      - name: eth0.102
+        ip_address: 10.0.2.4
+        vlan: server-management
+    os: Proxmox VE 9
+    owned: false
+    resources:
+      arch: x86_64
+      cpu: 6
+      ram_gb: 32
+      storage_gb: 512
+    role: hypervisor
+    state: planned
+    type: physical
+
+  - hostname: pve4
+    ansible_roles: [common, proxmox_host]
+    description: DMZ Proxmox hypervisor; optional upgrade
+    hardware: Lenovo ThinkCentre M720Q
+    interfaces:
+      - name: eth0.102
+        ip_address: 10.0.2.5
+        vlan: server-management
+    os: Proxmox VE 9
+    owned: false
+    resources:
+      arch: x86_64
+      cpu: 6
+      ram_gb: 32
+      storage_gb: 512
+    role: hypervisor
+    state: planned
+    type: physical
+
+  - hostname: pve5
+    ansible_roles: [common, proxmox_host]
+    description: Internal Proxmox hypervisor; carries Central-Servers, DevOps, Security, App-Servers, Smart Home and the Users gateway
+    hardware: Custom build
     interfaces:
       - name: eth0.102
         ip_address: 10.0.2.18
         vlan: server-management
+      - name: mirror
+        description: 1G NIC cabled to switch2's mirror port; PCI passthrough to secmon1, no host address
+        state: planned
+    notes: |
+      2 TB SSD, 1x 10G SFP+ and 1x 1G Ethernet. Memory fully allocated; 46 vCPUs on 24 threads,
+      deliberately overcommitted. Tags the Smart Home VLAN (24) to ha1 only (issue #98) and the
+      Users VLAN (20) to tailgw1 only (issue #146). A pve5 failure loses five zones and
+      remote-user access; accepted.
     os: Proxmox VE 9
+    owned: true
     resources:
       arch: x86_64
       cpu: 24
@@ -417,110 +600,40 @@ systems:
     state: present
     type: physical
 
-  - hostname: pve2
+  - hostname: pve6
     ansible_roles: [common, proxmox_host]
-    description: Internal Proxmox hypervisor
+    description: Internal Proxmox hypervisor; optional upgrade
     hardware: Lenovo ThinkCentre M920Q
     interfaces:
       - name: eth0.102
         ip_address: 10.0.2.19
         vlan: server-management
     os: Proxmox VE 9
+    owned: false
     resources:
       arch: x86_64
       cpu: 8
       ram_gb: 64
       storage_gb: 1024
-    role: hypervisor
-    state: planned
-    type: physical
-
-  - hostname: pve3
-    ansible_roles: [common, proxmox_host]
-    description: Internal Proxmox hypervisor
-    hardware: Lenovo ThinkCentre M920Q
-    interfaces:
-      - name: eth0.102
-        ip_address: 10.0.2.20
-        vlan: server-management
-    os: Proxmox VE 9
-    resources:
-      arch: x86_64
-      cpu: 8
-      ram_gb: 64
-      storage_gb: 1024
-    role: hypervisor
-    state: planned
-    type: physical
-
-  - hostname: pve4
-    ansible_roles: [common, proxmox_host]
-    description: DMZ Proxmox hypervisor
-    hardware: Lenovo ThinkCentre M720Q
-    interfaces:
-      - name: eth0.102
-        ip_address: 10.0.2.2
-        vlan: server-management
-    os: Proxmox VE 9
-    resources:
-      arch: x86_64
-      cpu: 6
-      ram_gb: 32
-      storage_gb: 512
-    role: hypervisor
-    state: present
-    type: physical
-
-  - hostname: pve5
-    ansible_roles: [common, proxmox_host]
-    description: DMZ Proxmox hypervisor
-    hardware: Lenovo ThinkCentre M720Q
-    interfaces:
-      - name: eth0.102
-        ip_address: 10.0.2.3
-        vlan: server-management
-    os: Proxmox VE 9
-    resources:
-      arch: x86_64
-      cpu: 6
-      ram_gb: 32
-      storage_gb: 512
-    role: hypervisor
-    state: planned
-    type: physical
-
-  - hostname: pve6
-    ansible_roles: [common, proxmox_host]
-    description: DMZ Proxmox hypervisor
-    hardware: Lenovo ThinkCentre M720Q
-    interfaces:
-      - name: eth0.102
-        ip_address: 10.0.2.4
-        vlan: server-management
-    os: Proxmox VE 9
-    resources:
-      arch: x86_64
-      cpu: 6
-      ram_gb: 32
-      storage_gb: 512
     role: hypervisor
     state: planned
     type: physical
 
   - hostname: pve7
     ansible_roles: [common, proxmox_host]
-    description: DMZ Proxmox hypervisor
-    hardware: Lenovo ThinkCentre M720Q
+    description: Internal Proxmox hypervisor; optional upgrade
+    hardware: Lenovo ThinkCentre M920Q
     interfaces:
       - name: eth0.102
-        ip_address: 10.0.2.5
+        ip_address: 10.0.2.20
         vlan: server-management
     os: Proxmox VE 9
+    owned: false
     resources:
       arch: x86_64
-      cpu: 6
-      ram_gb: 32
-      storage_gb: 512
+      cpu: 8
+      ram_gb: 64
+      storage_gb: 1024
     role: hypervisor
     state: planned
     type: physical
@@ -529,222 +642,375 @@ systems:
   # DMZ
   # ==========================================================================
 
-  - hostname: game1
-    ansible_roles: [common, docker_host]
-    description: Game server host
-    host: pve-dmz
+  - hostname: k3s-dmz1
+    ansible_roles: [common, k3s_server, tailscale]
+    description: DMZ K3s cluster node (server)
+    host: pve1
     interfaces:
       - name: eth0
         ip_address: 192.168.4.2
-        vlan: dmz-servers
+        vlan: dmz
+      - name: tailscale0
+        description: The relay's Headscale tailnet, dialed out to relay1; address assigned by Headscale
+    notes: |
+      Runs the public entry point, the blog, the download mirror, Jellyfin, Valheim, V Rising, Foundry, AutoMuteUs
+      and Galactus. Managed by Argo CD in the App-Servers cluster; secrets arrive from a pipeline job.
+      Its Tailscale client (Ansible, on the host, not in the cluster) joins relay1's Headscale tailnet
+      over dmz-to-relay (issue #148); relay1's Traefik reaches the dedicated entrypoint (8444) and the
+      game ports at the tailscale0 address. The host firewall on tailscale0 accepts only those ports
+      from relay1. This tailnet is separate from the household Tailscale tailnet (issue #146).
     os: Debian 13
     resources:
       arch: x86_64
-      cpu: 2
-      ram_gb: 4
-      storage_gb: 24
+      cpu: 4
+      ram_gb: 14
+      storage_gb: 900
     role: server
     state: planned
     type: vm
 
-  - hostname: ingress1
-    ansible_roles: [common, docker_host]
-    description: Primary entrance point for external traffic
-    host: pve-dmz
-    interfaces:
-      - name: eth0
-        ip_address: 192.168.4.3
-        vlan: dmz-servers
-    os: Debian 13
-    resources:
-      arch: x86_64
-      cpu: 2
-      ram_gb: 4
-      storage_gb: 16
-    role: server
-    state: planned
-    type: vm
-
-  - hostname: seeder1
-    ansible_roles: [common, docker_host, adguard, traefik]
-    description: Primary host of external services
-    host: pve-dmz
-    interfaces:
-      - name: eth0
-        ip_address: 192.168.4.5
-        vlan: dmz-servers
-    os: Debian 13
-    resources:
-      arch: x86_64
-      cpu: 2
-      ram_gb: 8
-      storage_gb: 64
-    role: server
-    state: planned
-    type: vm
-
-  - hostname: tunnel1
-    ansible_roles: [common, tailscale_server]
-    description: Remote access ingress (Tailscale/Headscale server)
-    host: pve-dmz
-    interfaces:
-      - name: eth0
-        ip_address: 192.168.4.6
-        vlan: dmz-servers
+  - hostname: relay1
+    ansible_roles: [common, traefik, headscale]
+    description: Linode VPS relaying watch, downloads and game servers to k3s-dmz1; a DMZ host
+    notes: |
+      Issue #148. Not in the house: no VLAN; Linode assigns its public address, held in the Relay
+      group. Created by OpenTofu's Linode provider (the $5 plan, 1 TB transfer, $0.005/GB over;
+      issue #145) and managed by Ansible like any DMZ host, with the same protections, log shipping
+      and metrics. Not a K3s node. Traefik routes by SNI with TLS passthrough, so it holds no app
+      certificates and sees no clear text; PROXY protocol carries the visitor's IP to home Traefik.
+      watch is limited to Friend_Countries by a TCP IPAllowList rendered monthly; downloads and the
+      game servers are open to all; game UDP rides Traefik UDP routers. CrowdSec with the firewall
+      bouncer covers every port. Headscale runs the relay's own tailnet, its control traffic sharing
+      443 under its own name; its ACL lets relay1 reach only k3s-dmz1's entrypoint and game ports.
+      Host firewall: TCP 443, UDP 41641 (Tailscale) and the deployed games' UDP ports, nothing else
+      public. Linode's web console is the way in if the link fails. How runners, bastion1,
+      Prometheus, Security Onion and the CrowdSec LAPI reach it is open (issue #156).
+      Deployed in Phase 8 with the first service that needs it. When Linode is down, watch,
+      downloads and the games are down; the blog and admin access are not.
     os: Debian 13
     resources:
       arch: x86_64
       cpu: 1
-      ram_gb: 2
-      storage_gb: 16
+      ram_gb: 1
+      storage_gb: 25
     role: server
     state: planned
     type: vm
 
   # ==========================================================================
-  # Internal - Servers
+  # Central-Servers (Bootstrap tier, out of the mesh)
   # ==========================================================================
+
+  - hostname: dns1
+    ansible_roles: [common, unbound, chrony]
+    description: Unbound resolver and chrony
+    host: pve5
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.16.2
+        vlan: central-servers
+    notes: Serves .lan, .man and private reverse zones; forwards ad.mikewashere.lan to dc1; full recursion with DNSSEC validated locally (issue #120).
+    os: Debian 13
+    resources:
+      arch: x86_64
+      cpu: 1
+      ram_gb: 1
+      storage_gb: 10
+    role: server
+    state: planned
+    type: vm
 
   - hostname: ca1
     ansible_roles: [common, stepca]
-    description: step-ca certificate authority (X.509 + SSH); ACME, JWK, OIDC provisioners
-    host: pve-internal
+    description: step-ca intermediate (X.509 and SSH), name-constrained under the offline root
+    host: pve5
     interfaces:
       - name: eth0
         ip_address: 192.168.16.3
-        vlan: internal-servers
-    notes: Internal CA. Signs everything. (OIDC, SSH, ACME, JWK)
+        vlan: central-servers
     os: Debian 13
     resources:
       arch: x86_64
       cpu: 1
-      ram_gb: 4
-      storage_gb: 16
+      ram_gb: 1
+      storage_gb: 10
     role: server
     state: planned
     type: vm
 
   - hostname: dc1
     ansible_roles: [common, samba_ad_dc]
-    description: Samba Active Directory Domain Controller
-    host: pve-internal
+    description: Samba AD domain controller for AD.MIKEWASHERE.LAN
+    host: pve5
     interfaces:
       - name: eth0
         ip_address: 192.168.16.4
-        vlan: internal-servers
-    notes: |
-      Primary identity source for Linux (sssd/realmd) + Windows 11 Pro (domain
-      join). Authentik above this for web SSO.
+        vlan: central-servers
+    notes: Identity for Windows 11 and Linux workstations. Authelia sits above it for web SSO.
     os: Debian 13
     resources:
       arch: x86_64
       cpu: 2
-      ram_gb: 8
-      storage_gb: 128
-    role: server
-    state: planned
-    type: vm
-
-  - hostname: feeder1
-    ansible_roles: [common, docker_host]
-    description: Internal downloader and content services
-    host: pve-internal
-    interfaces:
-      - name: eth0
-        ip_address: 192.168.16.5
-        vlan: internal-servers
-    os: Debian 13
-    resources:
-      arch: x86_64
-      cpu: 4
-      ram_gb: 24
-      storage_gb: 512
-    role: server
-    state: planned
-    type: vm
-
-  - hostname: ingress2
-    ansible_roles: [common, docker_host, authentik]
-    description: Authentik identity provider (OIDC/SAML, LDAP-federated to dc1)
-    host: pve-internal
-    interfaces:
-      - name: eth0
-        ip_address: 192.168.16.7
-        vlan: internal-servers
-    notes: |
-      User identity plane and primary ingress into the internal network.
-      LDAP-federated to dc1 for OS-level identity. Step-ca's OIDC
-      provisioner federates here for user SSH cert issuance.
-    os: Debian 13
-    resources:
-      arch: x86_64
-      cpu: 2
-      ram_gb: 4
-      storage_gb: 32
+      ram_gb: 2
+      storage_gb: 40
     role: identity
     state: planned
     type: vm
 
-  - hostname: secmon1
-    ansible_roles: [common, docker_host]
-    description: Security monitoring (log aggregation, IDS, dashboards)
-    host: pve-internal
+  - hostname: bao1
+    ansible_roles: [common, openbao]
+    description: OpenBao (secrets only; PKI deliberately not enabled)
+    host: pve5
     interfaces:
       - name: eth0
-        ip_address: 192.168.16.10
-        vlan: internal-servers
+        ip_address: 192.168.16.5
+        vlan: central-servers
+    notes: A seal YubiKey by USB passthrough from pve5 (issue #120), so bao1 cannot live-migrate.
+    os: Debian 13
+    resources:
+      arch: x86_64
+      cpu: 2
+      ram_gb: 2
+      storage_gb: 20
+    role: server
+    state: planned
+    type: vm
+
+  - hostname: sso1
+    ansible_roles: [common, authelia]
+    description: Authelia SSO on shared Postgres
+    host: pve5
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.16.7
+        vlan: central-servers
+    notes: Two-factor for logins from remote-user peers.
+    os: Debian 13
+    resources:
+      arch: x86_64
+      cpu: 1
+      ram_gb: 1
+      storage_gb: 10
+    role: identity
+    state: planned
+    type: vm
+
+  # ==========================================================================
+  # App-Servers
+  # ==========================================================================
+
+  - hostname: k3s-app1
+    ansible_roles: [common, k3s_server]
+    description: App-Servers K3s cluster node (server)
+    host: pve5
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.17.2
+        vlan: app-servers
+      - name: eth1
+        ip_address: 192.168.26.3
+        vlan: storage
+        description: Storage VLAN to file1
     notes: |
-      Specific stack TBD: Wazuh, Security Onion, or custom
-      Grafana+Loki+Prometheus. Receives NetFlow from routers,
-      audit logs from bastion1, and metrics from the fleet.
+      Runs every Feeder1 and Seeder1 app and its exporters, Nextcloud, Tdarr, Homepage,
+      Adminer, Redis-Insight, Argo CD, the internal proxy for .lan names and the gluetun VPN pod.
     os: Debian 13
     resources:
       arch: x86_64
-      cpu: 2
-      ram_gb: 24
-      storage_gb: 512
-    role: server
-    state: planned
-    type: vm
-
-  - hostname: transcode1
-    ansible_roles: [common, docker_host]
-    description: Video transcoding server (Plex, Jellyfin, Emulation)
-    host: pve-internal
-    interfaces:
-      - name: eth0
-        ip_address: 192.168.16.11
-        vlan: internal-servers
-    os: Debian 13
-    resources:
-      arch: x86_64
-      cpu: 3
-      ram_gb: 24
-      storage_gb: 256
-    role: server
-    state: planned
-    type: vm
-
-  - hostname: vault1
-    ansible_roles: [common, vault]
-    description: HashiCorp Vault (secrets only; PKI deliberately not enabled)
-    host: pve-internal
-    interfaces:
-      - name: eth0
-        ip_address: 192.168.16.12
-        vlan: internal-servers
-    os: Debian 13
-    resources:
-      arch: x86_64
-      cpu: 2
-      ram_gb: 4
-      storage_gb: 32
+      cpu: 12
+      ram_gb: 40
+      storage_gb: 600
     role: server
     state: planned
     type: vm
 
   # ==========================================================================
-  # Internal - Devices
+  # DevOps
+  # ==========================================================================
+
+  - hostname: devops1
+    ansible_roles: [common, gitlab]
+    description: GitLab CE on shared Postgres 18
+    host: pve5
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.18.2
+        vlan: devops
+    os: Debian 13
+    resources:
+      arch: x86_64
+      cpu: 8
+      ram_gb: 12
+      storage_gb: 200
+    role: server
+    state: planned
+    type: vm
+
+  - hostname: runner1
+    ansible_roles: [common, docker_host, gitlab_runner]
+    description: GitLab runners, Docker executor with the Toolbox image
+    host: pve5
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.18.3
+        vlan: devops
+    os: Debian 13
+    resources:
+      arch: x86_64
+      cpu: 4
+      ram_gb: 8
+      storage_gb: 100
+    role: server
+    state: planned
+    type: vm
+
+  # ==========================================================================
+  # Security
+  # ==========================================================================
+
+  - hostname: secmon1
+    description: Security Onion 2.4 Standalone; stores every log
+    host: pve5
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.19.2
+        vlan: security
+      - name: sniff
+        description: pve5's mirror NIC by PCI passthrough; no address
+    os: Security Onion 2.4
+    resources:
+      arch: x86_64
+      cpu: 8
+      ram_gb: 32
+      storage_gb: 500
+    role: server
+    state: planned
+    type: vm
+
+  - hostname: metrics1
+    ansible_roles: [common, prometheus, grafana]
+    description: Prometheus, Alertmanager and Grafana
+    host: pve5
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.19.3
+        vlan: security
+    notes: Pulls metrics from exporters in each zone; sends alerts to Pushover and Discord.
+    os: Debian 13
+    resources:
+      arch: x86_64
+      cpu: 2
+      ram_gb: 8
+      storage_gb: 150
+    role: server
+    state: planned
+    type: vm
+
+  - hostname: crowdsec1
+    ansible_roles: [common, crowdsec_lapi]
+    description: The one CrowdSec LAPI; SOAR reserved here as an optional upgrade
+    host: pve5
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.19.4
+        vlan: security
+    notes: Console not enrolled. Bans public IPs only.
+    os: Debian 13
+    resources:
+      arch: x86_64
+      cpu: 2
+      ram_gb: 8
+      storage_gb: 50
+    role: server
+    state: planned
+    type: vm
+
+  # ==========================================================================
+  # Smart Home and Surveillance (issue #98)
+  # ==========================================================================
+
+  - hostname: ha1
+    description: Home Assistant OS; the smart home hub
+    host: pve5
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.24.2
+        vlan: smart-home
+    notes: |
+      An appliance: updates itself over Smart Home's internet, not Ansible-managed. One network
+      leg only, because device discovery is multicast and doesn't cross VLANs. No radios; a ZBT-2
+      or ZWA-2 USB stick on pve5 is passed through if Zigbee, Thread or Z-Wave devices are bought.
+      Users reach it only through the internal proxy (ha.mikewashere.lan), with its own login and
+      TOTP. Backed up by pve5's vzdump to file1; in the Restore set. The Home Assistant Green is
+      the optional upgrade that moves it off pve5.
+    os: Home Assistant OS
+    resources:
+      arch: x86_64
+      cpu: 2
+      ram_gb: 4
+      storage_gb: 32
+    role: server
+    state: planned
+    type: vm
+
+  - hostname: tailgw1
+    ansible_roles: [common, tailscale]
+    description: Remote-user gateway; Tailscale subnet router for family and the owner's user devices
+    host: pve5
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.20.2
+        vlan: users
+      - name: tailscale0
+        description: Household tailnet; address assigned by Tailscale
+    notes: |
+      Issue #146, Phase 8 with the apps it serves. Advertises only the resolvers, Authelia and the
+      internal proxy (App_Nodes 443) as subnet routes; address translation is off, so remote users
+      keep their 100.64.0.0/10 addresses (Remote_Users) and router2 routes that range back here.
+      The router rules remote-users-* and Authelia's two-factor check apply unchanged. Users zone,
+      so its own Tailscale traffic leaves through internet-any. Forwards only tailscale0 to eth0
+      for those destinations. Admin laptops never use it. If pve5 is down, remote-user access is
+      down (accepted in issue #81). RAM taken from k3s-app1.
+    os: Debian 13
+    resources:
+      arch: x86_64
+      cpu: 1
+      ram_gb: 1
+      storage_gb: 8
+    role: server
+    state: planned
+    type: vm
+
+  - hostname: nvr1
+    ansible_roles: [common, frigate]
+    description: NVR host; Frigate and Mosquitto for the cameras
+    hardware: Intel N100/N150-class mini PC
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.25.2
+        vlan: surveillance
+    notes: |
+      Part of the Surveillance bundle, an optional upgrade (4 PoE cameras, this host, a 2 TB SSD);
+      nothing here exists until it is bought. A managed Debian host: bastions and runners SSH in,
+      CrowdSec and log shipping run on it. Frigate uses OpenVINO on the iGPU for detection and
+      VAAPI for decoding; web push, version check and Frigate+ off. Motion-only recording, 14 days
+      of motion and 30 days of alerts on the local SSD; recordings are disposable. restic pushes
+      /media/frigate/exports (saved clips) only, append-only, to file1's REST server. The one
+      Surveillance machine with named outbound.
+      CPU is the N100's four cores; RAM is a placeholder until the bundle is priced.
+    os: Debian 13
+    owned: false
+    resources:
+      arch: x86_64
+      cpu: 4
+      ram_gb: 16
+      storage_gb: 2048
+    role: server
+    state: planned
+    type: physical
+
+  # ==========================================================================
+  # Devices
   # ==========================================================================
 
   - hostname: printer1
@@ -752,8 +1018,9 @@ systems:
     hardware: Epson EcoTank ET-2800
     interfaces:
       - name: main
-        ip_address: 192.168.20.2
-        vlan: internal-devices
+        ip_address: 192.168.22.2
+        vlan: devices
+    owned: true
     role: printer
     state: present
     type: physical
@@ -763,26 +1030,32 @@ systems:
     hardware: HP LaserJet Pro M401n
     interfaces:
       - name: main
-        ip_address: 192.168.20.3
-        vlan: internal-devices
+        ip_address: 192.168.22.3
+        vlan: devices
+    owned: true
     role: printer
     state: present
     type: physical
 
+  # ==========================================================================
+  # Fabrication
+  # ==========================================================================
+
   - hostname: printfil1
     ansible_roles: [common, klipper]
-    description: Klipper 3D printer controller
-    hardware: Raspberry Pi 5
+    description: Klipper, Moonraker, Mainsail, Crowsnest and Spoolman for the filament printer
+    hardware: Raspberry Pi 4
     interfaces:
       - name: eth0
-        ip_address: 192.168.20.4
-        vlan: internal-devices
+        ip_address: 192.168.23.4
+        vlan: fabrication
     os: Raspbian Lite
+    owned: true
     resources:
       arch: arm64
       cpu: 4
-      ram_gb: 16
-      storage_gb: 128
+      ram_gb: TBD
+      storage_gb: TBD
     role: cnc
     state: present
     type: physical
@@ -793,9 +1066,10 @@ systems:
     hardware: Raspberry Pi 5
     interfaces:
       - name: eth0
-        ip_address: 192.168.20.5
-        vlan: internal-devices
+        ip_address: 192.168.23.5
+        vlan: fabrication
     os: Raspbian Lite
+    owned: false
     resources:
       arch: arm64
       cpu: 4
@@ -806,23 +1080,25 @@ systems:
     type: physical
 
   - hostname: printres1
-    description: Wifi Enabled Resin 3D Printer
+    description: Wi-Fi resin 3D printer
     hardware: AnyCubic Mono M5
     interfaces:
       - name: main
-        ip_address: 192.168.20.6
-        vlan: internal-devices
+        ip_address: 192.168.23.6
+        vlan: fabrication
+    owned: true
     role: cnc
     state: present
     type: physical
 
   - hostname: printres2
-    description: Wifi Enabled Resin 3D Printer
+    description: Wi-Fi resin 3D printer
     hardware: AnyCubic Photon
     interfaces:
       - name: main
-        ip_address: 192.168.20.7
-        vlan: internal-devices
+        ip_address: 192.168.23.7
+        vlan: fabrication
+    owned: unknown
     role: cnc
     state: planned
     type: physical
@@ -832,8 +1108,9 @@ systems:
     hardware: TBD
     interfaces:
       - name: main
-        ip_address: 192.168.20.8
-        vlan: internal-devices
+        ip_address: 192.168.23.8
+        vlan: fabrication
+    owned: false
     role: cnc
     state: planned
     type: physical
@@ -843,8 +1120,9 @@ systems:
     hardware: TBD
     interfaces:
       - name: main
-        ip_address: 192.168.20.9
-        vlan: internal-devices
+        ip_address: 192.168.23.9
+        vlan: fabrication
+    owned: false
     role: cnc
     state: planned
     type: physical
@@ -854,51 +1132,34 @@ systems:
     hardware: TBD
     interfaces:
       - name: main
-        ip_address: 192.168.20.10
-        vlan: internal-devices
+        ip_address: 192.168.23.10
+        vlan: fabrication
+    owned: false
     role: cnc
     state: planned
     type: physical
 
   # ==========================================================================
-  # Internal - DevOps
-  # ==========================================================================
-
-  - hostname: devops1
-    ansible_roles: [common, docker_host, gitlab, kestra]
-    description: GitLab CE platform host
-    host: pve-internal
-    interfaces:
-      - name: eth0
-        ip_address: 192.168.23.2
-        vlan: internal-devops
-    os: Debian 13
-    resources:
-      arch: x86_64
-      cpu: 4
-      ram_gb: 16
-      storage_gb: 128
-    role: server
-    state: planned
-    type: vm
-
-  # ==========================================================================
-  # Special
+  # Offsite
   # ==========================================================================
 
   - hostname: backup1
-    ansible_roles: [common, truenas, tailscale_client]
-    description: Offsite backup target
+    description: Tier-3 offsite backup; optional upgrade
     hardware: QNAP TS-364
     interfaces:
-      - name: eth0
-        ip_address: TBD
-        vlan: internal-servers
+      - name: tailscale0
+        description: Household tailnet via the TrueNAS Tailscale app; address assigned by Tailscale
+        state: planned
     notes: |
-      Physically offsite; Tailscale-connected into internal-servers VLAN.
-      Acts as Tier-2 backup. True Tier-3 (encrypted cloud bucket, second-site)
-      planned for a later phase.
+      Not owned. First on the backup purchase list. Until then Backblaze B2 is the only offsite
+      copy. Sits at a second site (such as a relative's house) with no port forwarding there and
+      no VLAN, and joins the household tailnet through the TrueNAS Tailscale app (issue #146,
+      Phase 3). The tailnet access rules allow file1 to its append-only restic REST server port
+      and bastion1 to its SSH and web UI, nothing else; backup1 starts nothing toward home. It
+      runs its own prune and ZFS snapshots, so a compromised house can't erase its copy. TrueNAS
+      has no host firewall, so the access rules are its only filter on the tailnet.
     os: TrueNAS Scale 25
+    owned: false
     resources:
       arch: x86_64
       cpu: 4
@@ -907,3 +1168,162 @@ systems:
     role: server
     state: planned
     type: physical
+
+  - hostname: lightsail1
+    description: AWS Lightsail instance serving the blog and its downloads today
+    notes: |
+      Not in the homelab: no VLAN, interfaces or firewall rules, and not in the target design
+      (issue #148). publish.ps1 deploys to it over SSH until the GitHub Action replaces it
+      (issue #117). Serves the blog until it moves to the DMZ cluster (Phase 8 or earlier, through
+      the tunnel; issues #96, #148) and the downloads until they move to the relay. Deleted, with
+      downloads.mikewashere.com, once the blog's 30-day rollback window has passed and a download
+      through downloads.narly.ninja (via relay1) from outside the house matches SHA256SUMS
+      (issue #116).
+    role: server
+    state: present
+    type: vm
+
+  # ==========================================================================
+  # Power and ISP edge
+  # ==========================================================================
+
+  - hostname: ups1
+    description: UPS, USB-connected to nut1
+    hardware: Tripp Lite SMART1500LCD
+    owned: true
+    role: ups
+    state: present
+    type: appliance
+
+  - hostname: ups2
+    description: Second UPS
+    hardware: TBD
+    owned: false
+    role: ups
+    state: planned
+    type: appliance
+
+  - hostname: ispgw1
+    description: AT&T ONT/router in passthrough mode, in front of router1
+    hardware: AT&T BGW320
+    notes: Cannot be removed for now. Its firewall gives router1 no protection.
+    owned: true
+    role: gateway
+    state: present
+    type: network_device
+
+  # ==========================================================================
+  # Workstations (placeholder hostnames; Users VLAN, DHCP)
+  # ==========================================================================
+
+  - hostname: desktop1
+    description: Desktop, roaming identity
+    notes: May move to Linux later.
+    os: Windows 11 Pro
+    owned: true
+    role: workstation
+    state: present
+    type: physical
+
+  - hostname: desktop2
+    description: Desktop, roaming identity
+    os: Windows 11 Pro
+    owned: true
+    role: workstation
+    state: present
+    type: physical
+
+  - hostname: laptop1
+    description: Laptop, roaming identity
+    os: Windows 11 Pro
+    owned: true
+    role: workstation
+    state: present
+    type: physical
+
+  - hostname: laptop2
+    description: Laptop, roaming identity
+    os: Linux
+    owned: true
+    role: workstation
+    state: present
+    type: physical
+
+  - hostname: laptop3
+    description: Laptop, roaming identity
+    os: Linux
+    owned: true
+    role: workstation
+    state: present
+    type: physical
+
+  # ==========================================================================
+  # RetroNet clients
+  # ==========================================================================
+
+  - hostname: retro1
+    description: Windows XP machine, being built
+    os: Windows XP
+    owned: true
+    role: workstation
+    state: planned
+    type: physical
+
+  # ==========================================================================
+  # Decommissioned: retired by a decision, kept so older docs still resolve
+  # ==========================================================================
+
+  - hostname: fw3
+    description: Retired; only two Protectli boxes are planned (issue #100)
+    state: decommissioned
+    type: network_device
+
+  - hostname: fw4
+    description: Retired; only two Protectli boxes are planned (issue #100)
+    state: decommissioned
+    type: network_device
+
+  - hostname: ntp1
+    description: Retired; the public NTP server was dropped and dns2 is the time Pi (issue #68)
+    state: decommissioned
+    type: physical
+
+  - hostname: game1
+    description: Retired; game servers run in the DMZ K3s cluster (issue #68)
+    state: decommissioned
+    type: vm
+
+  - hostname: ingress1
+    description: Retired; the public entry point runs in the DMZ K3s cluster (issue #68)
+    state: decommissioned
+    type: vm
+
+  - hostname: seeder1
+    description: Retired; Seeder1 apps run in the App-Servers K3s cluster (issue #68)
+    state: decommissioned
+    type: vm
+
+  - hostname: vault1
+    description: Retired; OpenBao on bao1 replaces Vault (issue #120)
+    state: decommissioned
+    type: vm
+
+  - hostname: tunnel1
+    description: Retired; remote access is the household tailnet through bastion1 and tailgw1 (issue #146)
+    state: decommissioned
+    type: vm
+
+  - hostname: feeder1
+    description: Retired; Feeder1 apps run in the App-Servers K3s cluster (issue #68)
+    state: decommissioned
+    type: vm
+
+  - hostname: ingress2
+    description: Retired; the internal proxy runs in the App-Servers cluster and Authelia on sso1 (issues #66, #68)
+    state: decommissioned
+    type: vm
+
+  - hostname: transcode1
+    description: Retired; Jellyfin runs in the DMZ cluster, Tdarr in App-Servers (issues #99, #111)
+    state: decommissioned
+    type: vm
