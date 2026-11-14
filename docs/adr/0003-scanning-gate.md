@@ -6,6 +6,8 @@ The gate is a single POSIX-sh script, `Scripts/gate/gate.sh`. The `pre-commit` a
 - `confcrypt check` over confcrypt-managed files
 - a SOPS-metadata check over every SOPS-governed file
 
+A custom rule may be refined in `.gitleaks.toml` to skip code that only names a secret, for example placeholder words such as `string` in an assert schema, a call on a Terraform reference, a KV v2 Vault path. Each refinement is a narrow pattern anchored to the captured value, never to the whole line, and is paired with a gate test of a literal that only resembles it. Any other false positive is a reviewed exception (see below), not a refinement.
+
 Identifying details (emails, public IPs, stray MACs) are reported for review and never fail the gate. The gate fails closed when a required tool is missing.
 
 Keeping the local and CI checks in one script means they cannot diverge. The hook is only advisory: it can be skipped with `--no-verify`, and a fresh clone has no hook until it is installed. The enforcing check is therefore the CI job, made required by a branch ruleset on `main` that also blocks force-push and deletion.

@@ -225,6 +225,54 @@ def test_whole_token_placeholders_pass(repo, mode):
     assert r.code == 0, r.text
 
 
+# ---- code that names a credential: rule refinements, not reviewed exceptions
+
+def _code_shapes():
+    """Code that names a secret without holding one (ADR 0003, rule refinements)."""
+    return [
+        ("assert-type-word", "  password: string\n  api_token: string\n"),
+        ("vault-kv2-path",
+         "db: \"{{ lookup('hashi_vault', 'secret=kv/data/apps/' ~ host ~ '/pg field=password') }}\"\n"
+         "u: \"{{ lookup('community.hashi_vault.hashi_vault', 'secret=kv/data/gitlab/admin field=username') }}\"\n"),
+        ("dotted-macro-call", "{% set v_secret = vmac.kv2_secret(raw) %}\n"),
+        ("call-on-terraform-ref", '  token = coalesce(var.vault_token, "")\n'),
+    ]
+
+
+@pytest.mark.parametrize("mode", ["--staged", "--all"])
+@pytest.mark.parametrize("name,text", _code_shapes(), ids=[s[0] for s in _code_shapes()])
+def test_code_that_names_a_credential_passes(repo, mode, name, text):
+    _mk(repo, mode, "roles/r/tasks/x.yml", text)
+    r = repo.gate(mode)
+    assert r.code == 0, r.text
+
+
+def _lookalike_shapes():
+    """Literals that only resemble the code shapes above are still secrets.
+    Values start with a letter so a leading digit can't defeat a pattern by luck."""
+    return [
+        ("type-word-prefix", lambda v: f"password: string{v}\n"),
+        ("secret-outside-kv2", lambda v: f"url: 'secret={v} field=password'\n"),
+        ("open-paren", lambda v: f'db_password: "{v}(x9"\n'),
+        ("word-call", lambda v: f'db_password: "{v}(winter)"\n'),
+        ("call-then-more", lambda v: f'token = {v}(Zm)9!\n'),
+        ("literal-after-lookup", lambda v:
+            f"x: \"{{{{ lookup('hashi_vault', 'secret=kv/data/a/b') }}}}\" # token: {v}\n"),
+    ]
+
+
+@pytest.mark.parametrize("mode", ["--staged", "--all"])
+@pytest.mark.parametrize("name,build", _lookalike_shapes(), ids=[s[0] for s in _lookalike_shapes()])
+def test_literal_resembling_code_still_fails(repo, mode, name, build):
+    v = "K" + rnd(15)
+    _mk(repo, mode, "group_vars/db.yml", build(v))
+    r = repo.gate(mode)
+    assert r.code != 0, f"{name} passed the gate"
+    assert "group_vars/db.yml" in r.text
+    assert v not in r.text
+    assert v.lower() not in r.text.lower()
+
+
 def test_default_rules_still_scan_reviewed_test_paths(repo):
     # The test-suite path exception covers the custom rules only.
     _mk(repo, "--all", "Scripts/gate/tests/test_extra.py", "pat = 'glpat-" + rnd(20) + "'\n")
