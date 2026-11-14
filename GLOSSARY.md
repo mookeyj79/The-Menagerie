@@ -24,6 +24,8 @@
 
 **Gate**: The set of checks that must pass before a change can enter the repo: a gitleaks secret scan (staged changes in the hook; full history plus the current tree in CI), the confcrypt check over confcrypt-managed files, the SOPS-encrypted check over SOPS-governed files, a refusal of any `.gitleaksignore`, and in CI that no Ignored-set path is tracked. It also reports identifying details (emails, public IPs, MACs) for review without failing. It runs in the `pre-commit` and `pre-merge-commit` hooks for staged changes and in CI for everything.
 
+**Structure check**: The check that every name the sources of truth in `Homelab Structure/` refer to exists: VLANs, hostnames, roles, firewall groups, DNS domains and records, services and identity groups. It also places port forwards and keeps RetroNet and Management apart. `Scripts/structure_check/structure_check.py`; runs in CI on every push.
+
 **Ignored set**: The paths gitignored because they are superseded copies, secret dumps, key files or state files: every `OLD/` folder, the Vault dumps, `Homelab Scripts/Secrets/`, `Router Configs/Backups/`, age key files, Terraform state, plans, crash logs and `.tfvars` variable files, and the Site file. CI fails if any of them is tracked.
 
 **Site file**: `Terraform/site.yml`, the deployer's values that the design doesn't decide: Proxmox API URLs and node names, the OpenBao address and token paths, DNS settings, vmids, storage, bridge, template and cloud-init snippet. Gitignored; `site.example.yml` is its committed template.
