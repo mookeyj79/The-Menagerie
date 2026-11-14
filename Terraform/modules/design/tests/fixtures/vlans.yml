@@ -1,0 +1,20 @@
+# Test fixture for modules/design.
+vlans:
+  - name: alpha
+    id: 10
+    subnets:
+      - cidr: 198.51.100.0/26
+        gateway_host: rt1
+        gateway_interface: v10
+  - name: beta
+    id: 20
+    subnets:
+      - cidr: 203.0.113.0/28
+        gateway_host: rt1
+        gateway_interface: v20
+      - cidr: 203.0.113.16/28
+        gateway_host: rt2
+  - name: storage
+    id: 30
+    subnets:
+      - cidr: 192.0.2.0/28

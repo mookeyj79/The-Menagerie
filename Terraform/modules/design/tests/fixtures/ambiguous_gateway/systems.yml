@@ -1,0 +1,85 @@
+# Test fixture for modules/design. Documentation addresses only (RFC 5737).
+groups:
+  - name: pve-a
+    hosts: [hosta1, hosta2]
+  - name: pve-b
+    hosts: [hostb1]
+
+systems:
+  - hostname: rt1
+    interfaces:
+      - name: v10
+        ip_address: 198.51.100.1
+        vlan: alpha
+      - name: v20
+        ip_address: 203.0.113.1
+        vlan: beta
+    state: planned
+    type: network_device
+
+  - hostname: rt2
+    interfaces:
+      - name: only
+        ip_address: 203.0.113.17
+        vlan: beta
+    state: planned
+    type: network_device
+
+  - hostname: vm1
+    description: First VM
+    host: hosta1
+    interfaces:
+      - name: eth0
+        ip_address: 198.51.100.5
+        vlan: alpha
+      - name: eth1
+        ip_address: 192.0.2.3
+        vlan: storage
+      - name: tailscale0
+        description: Overlay; not a Proxmox NIC
+    resources:
+      cpu: 4
+      ram_gb: 8
+      storage_gb: 100
+    state: planned
+    type: vm
+
+  - hostname: vm2
+    description: Second VM, placed on the group
+    host: pve-a
+    interfaces:
+      - name: eth0
+        ip_address: 203.0.113.20
+        vlan: beta
+      - name: eth1
+        vlan: alpha
+    resources:
+      cpu: 1
+      ram_gb: 2
+      storage_gb: 10
+    state: present
+    type: vm
+
+  - hostname: vm3
+    host: hostb1
+    interfaces:
+      - name: eth0
+        ip_address: 198.51.100.9
+        vlan: alpha
+    resources: { cpu: 1, ram_gb: 1, storage_gb: 10 }
+    state: planned
+    type: vm
+
+  - hostname: vm4
+    host: hosta1
+    state: decommissioned
+    type: vm
+
+  - hostname: cloud1
+    resources: { cpu: 1, ram_gb: 1, storage_gb: 10 }
+    state: planned
+    type: vm
+
+  - hostname: hosta1
+    state: planned
+    type: physical

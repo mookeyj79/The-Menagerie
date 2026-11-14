@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 The homelab is built in layers, each in its own top-level directory:
 
 1. **`Homelab Structure/`** — YAML sources of truth (`systems.yml`, `services.yml`, `vlans.yml`, `dns.yml`, `fw_rules.yml`, `fw_groups.yml`, `bastion_access.yml`, `links.yml`). Each file documents its own schema in a header comment. `systems.yml` lists every host with its `ansible_roles`; `services.yml` maps services to hosts, deploy `phase`, and dependencies. Check these first to learn what a host or service is supposed to be, and update them when adding/changing hosts or services.
-2. **`Terraform/`** — Proxmox (`proxmox_vm_qemu`) resources, split into `Systems/` (one dir per VM: Auth1, DB1, DevOps1, Seeder1, Tunnel1, Vault1), `Networks/` (Docker networks: DNS_Net, Main_Net, Socket-Proxy_Net), and `Containers/` (one dir per container: AdGuard, GitLab-CE, PostgreSQL, Redis, Step_CA, Tailscale, Unbound, Vault). Each dir is its own root module with `main.tf`/`providers.tf`/`vars.tf`.
+2. **`Terraform/`** — builds the Proxmox VMs straight from the sources of truth (`telmate/proxmox`, `proxmox_vm_qemu`). One root per cluster (`pve-internal/`, `pve-dmz/`) reads `systems.yml`/`vlans.yml` plus the gitignored `site.yml` (template: `site.example.yml`) through `modules/design` (provider-free; `terraform test` in that dir runs its fixture tests) and builds each VM with `modules/proxmox_vm`. No address, vmid, node, domain or VLAN tag is written in HCL: change the YAML instead. OpenBao is reached with the `hashicorp/vault` provider (`bao_addr`, `bao_token`, `use_bao`). Deploy steps: `docs/deploy.md`.
 3. **`Ansible/`** — roles only (no playbooks/inventory here), grouped by purpose:
    - `Systems/` — OS-level roles named `linux_*`, each with per-distro task files (`alpine.yml`, `debian.yml`, `redhat.yml`) dispatched from `tasks/main.yml`.
    - `Containers/` — one role per service (adguard, gitlab-ce, lego, postgresql, redis, step_ca, tailscale, traefik, unbound, vault); these prepare users/dirs/config and deploy the container, using `linux_manage_accounts` and `generic_check_docker`.
@@ -31,7 +31,8 @@ The homelab is built in layers, each in its own top-level directory:
   ```
   `check` is key-less. The identity is a path (`--identity`, `$SOPS_AGE_KEY_FILE`, config, or `~/.sops/keys.txt`); keys are never passed as arguments. Change protected lines with `edit`, leaving metadata/dummy pairs untouched by hand.
 - The **gate** (`Scripts/gate/gate.sh`, ADR 0003) runs from the `pre-commit` and `pre-merge-commit` hooks (`--staged`) and in CI (`--all`). It must pass; reviewed false positives go in `.gitleaks.toml` or an inline `gitleaks:allow`.
-- Some Terraform files contain placeholder/bootstrap values (e.g. cloud-init passwords in `Terraform/Systems/*/main.tf`); don't propagate them into new files.
+- Don't copy placeholder or bootstrap values (such as cloud-init passwords) from history or examples into new files.
+- Whoever adds a SOPS-governed file also commits a plaintext `*.example.yml` sibling with placeholder values (RFC 5737 addresses, `example.lan`).
 
 ## Conventions
 

@@ -1,6 +1,8 @@
 # The-Menagerie
 My Homelab Structure and Build Files
 
+To deploy the design on your own hardware, see [docs/deploy.md](docs/deploy.md).
+
 ## Install the git hooks
 
 Every commit is checked by the scanning gate (`Scripts/gate/gate.sh`, see [ADR 0003](docs/adr/0003-scanning-gate.md)). The hooks live in the tracked `.githooks/` directory. Git does not turn them on by itself, so run this once in each fresh clone:
