@@ -1,498 +1,878 @@
 # ============================================================================
 # services.yml - Service-to-host placement registry
 # ============================================================================
-# Documentation-grade source of truth for what runs where, when, and how.
-# May evolve to drive Compose rendering in a later phase; currently
-# reference-only.
-#
-# Consumed by:
-#   - Documentation generation (what runs where, in what phase, depending on what)
-#   - Dependency analysis (if X goes down, what breaks?)
-#   - Future: Compose file rendering, service discovery
+# What runs where, in which build-order phase, depending on what. Follows
+# "Workload placement" (issue #68) and "Build order" (issue #73).
+# Documentation-grade; currently reference-only.
 #
 # Schema:
 #   name           : service identity, lowercase-hyphen, unique across fleet
 #   description    : one-line human-readable purpose
 #   state          : present | planned | decommissioned
-#   phase          : integer phase number when this service deploys (-1..7+)
-#   host           : hostname from systems.yml where this service runs
-#   stack          : native | docker_compose | systemd
-#                      - native: installed via apt/omnibus package (e.g. GitLab)
-#                      - docker_compose: managed by Compose on a docker_host
-#                      - systemd: Ansible-managed binary as a systemd unit
-#   depends_on     : list of other service `name`s this requires
+#   phase          : build-order phase this service arrives in (-1..11)
+#   host           : systems.yml hostname where this service runs (for a
+#                    K3s app, a node of its cluster)
+#   stack          : native | systemd | truenas_app | k3s | appliance
+#   depends_on     : list of other service `name`s this requires to start
 #   integrations   :
-#     vault        : bool - fetches secrets from Vault via Vault Agent
+#     openbao      : bool - fetches secrets from OpenBao
 #     stepca       : bool - holds TLS cert(s) from step-ca
-#     authentik    : bool - SSO/OIDC integration with Authentik
-#     backup       : nightly | hourly | weekly | none
+#     sso          : bool - logs users in through Authelia
+#     backup       : how it reaches the Restore set, or none
 #   exposure       :
-#     dns_names    : list of short names (matched against dns_records.yml or
-#                      auto-derived host hostnames); omit if direct hostname is fine
-#     ports        : listening ports (informational; helps document attack surface)
-#     via_traefik  : bool - is this service fronted by a Traefik instance?
+#     dns_names    : names in dns.yml; omit if the host name is enough
+#     via_proxy    : bool - fronted by the internal proxy
 #   notes          : operational notes (block scalar `|` for multi-line)
 #
 # VALIDATION CONTRACT:
 #   - Every `host` value must match a hostname in systems.yml
 #   - Every `depends_on` entry must match another service `name`
-#   - Every `exposure.dns_names` entry must either:
-#       (a) match a record in dns_records.yml, OR
-#       (b) match a hostname in systems.yml (auto-derived A record)
+#   - Every `exposure.dns_names` entry must match a record in dns.yml
 # ============================================================================
 
 services:
+- name: nut-server
+  description: NUT, PeaNUT and the start order
+  state: present
+  phase: 1
+  host: nut1
+  stack: systemd
+  depends_on: []
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+  exposure:
+    dns_names:
+    - peanut
+  notes: Hardware exists; service partially configured.
+- name: bastion-sshd
+  description: The only admin path
+  state: planned
+  phase: 1
+  host: bastion1
+  stack: systemd
+  depends_on: []
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+  notes: Uses break-glass keys until step-ca exists in Phase 2.
+- name: unbound
+  description: Resolver for .lan, .man and filtered public names, and chrony
+  state: planned
+  phase: 2
+  host: dns1
+  stack: systemd
+  depends_on: []
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: vzdump
+  notes: Second instance as a TrueNAS app on file1 (Phase 3) until dns2 is bought.
+- name: stepca
+  description: Intermediate CA, X.509 and SSH
+  state: planned
+  phase: 2
+  host: ca1
+  stack: systemd
+  depends_on:
+  - unbound
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: data directory to file1
+  exposure:
+    dns_names:
+    - ca
+- name: openbao
+  description: Secrets, sealed by a YubiKey over PKCS#11
+  state: planned
+  phase: 2
+  host: bao1
+  stack: systemd
+  depends_on:
+  - unbound
+  - stepca
+  integrations:
+    openbao: false
+    stepca: true
+    sso: false
+    backup: raft snapshot
+  exposure:
+    dns_names:
+    - bao
+  notes: |
+    Issue #120. OpenBao replaces Vault and AWS KMS: the seal is a PKCS#11
+    key on three identical YubiKey 5 seal keys, one passed through to bao1
+    and one in each custody kit, so unsealing needs no internet. The Phase 0
+    proof tests it; the fallbacks are a Nitrokey HSM 2, then the static key
+    seal on a removable USB stick in pve5. Shamir unsealing is not used.
+- name: samba-ad
+  description: Domain controller for AD.MIKEWASHERE.LAN
+  state: planned
+  phase: 2
+  host: dc1
+  stack: systemd
+  depends_on:
+  - unbound
+  - stepca
+  integrations:
+    openbao: false
+    stepca: true
+    sso: false
+    backup: samba-tool domain backup
+- name: file-server
+  description: TrueNAS SMB and NFS; homes, library and backup shares
+  state: planned
+  phase: 3
+  host: file1
+  stack: appliance
+  depends_on:
+  - samba-ad
+  integrations:
+    openbao: false
+    stepca: true
+    sso: false
+    backup: ZFS snapshots; restic to B2
+  notes: |
+    file1 hardware is present; the TrueNAS build is Phase 3. Two read-only
+    NFSv4 exports to k3s-dmz1 (192.168.4.2/32, all users squashed to nobody),
+    on the Central-Servers address under dmz-to-library-and-backup: the media
+    library (issue #107) and the downloads dataset (issue #116). downloads
+    is in the Restore set, since some files are mirrored because their
+    original sites are gone; the workstation copies into it over SMB and
+    the DMZ never gets write access.
+- name: shared-postgres
+  description: Postgres 18 for apps, Authelia and GitLab
+  state: planned
+  phase: 3
+  host: file1
+  stack: truenas_app
+  depends_on:
+  - file-server
+  integrations:
+    openbao: false
+    stepca: true
+    sso: false
+    backup: pg_dump
+  exposure:
+    dns_names:
+    - postgresql
+  notes: Immich needs pgvector and VectorChord, so this server uses a custom image.
+- name: shared-redis
+  description: Redis for sessions and caches
+  state: planned
+  phase: 3
+  host: file1
+  stack: truenas_app
+  depends_on:
+  - file-server
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+  exposure:
+    dns_names:
+    - redis
+  notes: Disposable; not backed up.
+- name: shared-influxdb
+  description: InfluxDB
+  state: planned
+  phase: 3
+  host: file1
+  stack: truenas_app
+  depends_on:
+  - file-server
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: influx backup
+  exposure:
+    dns_names:
+    - influxdb
+- name: restic-rest-server
+  description: Append-only backup target for K8up
+  state: planned
+  phase: 3
+  host: file1
+  stack: truenas_app
+  depends_on:
+  - file-server
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+  notes: Listens on the Storage VLAN interface for App-Servers and on the Central-Servers interface for the DMZ (issue #107).
+- name: restic-offsite
+  description: Pushes the Restore set to Backblaze B2 with Object Lock
+  state: planned
+  phase: 3
+  host: file1
+  stack: truenas_app
+  depends_on:
+  - file-server
+  integrations:
+    openbao: true
+    stepca: false
+    sso: false
+    backup: none
+- name: authelia
+  description: SSO above Samba AD
+  state: planned
+  phase: 3
+  host: sso1
+  stack: systemd
+  depends_on:
+  - samba-ad
+  - shared-postgres
+  - shared-redis
+  integrations:
+    openbao: true
+    stepca: true
+    sso: false
+    backup: vzdump
+  exposure:
+    dns_names:
+    - auth
+  notes: |
+    Issue #120. No SMTP: the `filesystem` notifier writes TOTP enrolment and
+    reset messages to a file the owner reads on sso1.
+- name: prometheus
+  description: Metrics and Alertmanager; alerts to Pushover and Discord
+  state: planned
+  phase: 4
+  host: metrics1
+  stack: systemd
+  depends_on: []
+  integrations:
+    openbao: false
+    stepca: true
+    sso: false
+    backup: vzdump
+- name: grafana
+  description: Dashboards
+  state: planned
+  phase: 4
+  host: metrics1
+  stack: systemd
+  depends_on:
+  - prometheus
+  - authelia
+  integrations:
+    openbao: false
+    stepca: true
+    sso: true
+    backup: none
+  exposure:
+    dns_names:
+    - grafana
+- name: gitlab
+  description: SCM, CI/CD and container registry
+  state: planned
+  phase: 5
+  host: devops1
+  stack: native
+  depends_on:
+  - shared-postgres
+  - openbao
+  integrations:
+    openbao: true
+    stepca: true
+    sso: true
+    backup: GitLab backup plus gitlab-secrets.json
+  exposure:
+    dns_names:
+    - gitlab
+- name: gitlab-runner
+  description: Docker executor with the Toolbox image
+  state: planned
+  phase: 5
+  host: runner1
+  stack: systemd
+  depends_on:
+  - gitlab
+  integrations:
+    openbao: true
+    stepca: false
+    sso: false
+    backup: none
+- name: k3s-app-servers
+  description: App-Servers K3s cluster
+  state: planned
+  phase: 7
+  host: k3s-app1
+  stack: systemd
+  depends_on:
+  - openbao
+  - stepca
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+- name: k3s-dmz
+  description: DMZ K3s cluster
+  state: planned
+  phase: 7
+  host: k3s-dmz1
+  stack: systemd
+  depends_on: []
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+- name: argocd
+  description: GitOps for both clusters
+  state: planned
+  phase: 7
+  host: k3s-app1
+  stack: k3s
+  depends_on:
+  - k3s-app-servers
+  - gitlab
+  integrations:
+    openbao: false
+    stepca: false
+    sso: true
+    backup: none
+  exposure:
+    dns_names:
+    - argocd
+    via_proxy: true
+- name: internal-proxy
+  description: Holds the .lan certificate and forwards to services
+  state: planned
+  phase: 7
+  host: k3s-app1
+  stack: k3s
+  depends_on:
+  - k3s-app-servers
+  - stepca
+  integrations:
+    openbao: false
+    stepca: true
+    sso: false
+    backup: none
+  exposure:
+    dns_names:
+    - proxy
+  notes: |
+    A separate entrypoint on its own port carries only the ingress
+    exceptions, Seerr and Vaultwarden (issue #95), for DMZ Traefik.
+    It is served with the step-ca certificate. It also holds Let's
+    Encrypt certificates for requests, pass, join and send, the
+    published names Unbound answers with this proxy's address.
+- name: k8up
+  description: App volume backups to the restic REST server
+  state: planned
+  phase: 7
+  host: k3s-app1
+  stack: k3s
+  depends_on:
+  - k3s-app-servers
+  - restic-rest-server
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+  notes: Also runs in the DMZ cluster.
+- name: app-servers-apps
+  description: Every Feeder1 and Seeder1 app and its exporters
+  state: planned
+  phase: 8
+  host: k3s-app1
+  stack: k3s
+  depends_on:
+  - internal-proxy
+  - shared-postgres
+  - file-server
+  integrations:
+    openbao: true
+    stepca: false
+    sso: true
+    backup: K8up
+  exposure:
+    via_proxy: true
+  notes: |
+    One record per app in dns.yml under App-Servers apps. Seerr and
+    Vaultwarden are also published as ingress exceptions (issue #95).
+- name: nextcloud
+  description: Files and sync, including for travelling laptops
+  state: planned
+  phase: 8
+  host: k3s-app1
+  stack: k3s
+  depends_on:
+  - internal-proxy
+  - shared-postgres
+  - file-server
+  integrations:
+    openbao: true
+    stepca: false
+    sso: true
+    backup: K8up
+  exposure:
+    dns_names:
+    - nextcloud
+    via_proxy: true
+- name: vpn-gateway
+  description: gluetun pod carrying all VPN traffic
+  state: planned
+  phase: 8
+  host: k3s-app1
+  stack: k3s
+  depends_on:
+  - k3s-app-servers
+  integrations:
+    openbao: true
+    stepca: false
+    sso: false
+    backup: none
+  notes: Which apps use it is chosen at build time.
+- name: cloudflared
+  description: Cloudflare Tunnel connector; every public web name arrives here
+  state: planned
+  phase: 8
+  host: k3s-dmz1
+  stack: k3s
+  depends_on:
+  - k3s-dmz
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+  notes: |
+    Issue #93. Two replicas of one remotely-managed tunnel in its own meshed
+    namespace, with one catch-all rule to Traefik. The tunnel, its routes and
+    the public DNS records are OpenTofu's Cloudflare provider. The tunnel
+    token comes from OpenBao through the scheduled DMZ secret job.
+- name: public-entry-point
+  description: Traefik (bundled with K3s) behind cloudflared; routes public names by host
+  state: planned
+  phase: 8
+  host: k3s-dmz1
+  stack: k3s
+  depends_on:
+  - k3s-dmz
+  - cloudflared
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+  notes: |
+    Issue #93. Runs the CrowdSec bouncer, reading the visitor IP from
+    CF-Connecting-IP and trusting it only from the cloudflared pods.
+    Forwards the ingress exceptions to the internal proxy's exception
+    entrypoint (issue #95). Jellyfin's public name, the downloads mirror
+    and the game servers don't pass through the tunnel: they arrive from
+    relay1 over the Headscale tailnet (issue #148). A dedicated entrypoint
+    (node port 8444) takes relay1's TLS passthrough and routes two names,
+    watch and downloads; it reads the visitor IP from PROXY protocol,
+    trusted only from relay1, and refuses a Host that doesn't match the SNI,
+    so a client outside Friend_Countries can't send an allowed SNI and then
+    ask for watch.
+- name: relay-entry-point
+  description: Traefik on relay1; SNI passthrough for watch and downloads, UDP routers for games
+  state: planned
+  phase: 8
+  host: relay1
+  stack: systemd
+  depends_on:
+  - headscale
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+  exposure:
+    dns_names:
+    - watch
+    - downloads
+    - valheim
+    - v-rising
+  notes: |
+    Issue #148. Holds no app certificates. watch only from Friend_Countries
+    (a TCP IPAllowList rendered monthly); downloads and games open to all.
+    Sends PROXY protocol to k3s-dmz1's dedicated entrypoint at its tailnet
+    address. CrowdSec's firewall bouncer on relay1 covers every port.
+- name: headscale
+  description: The relay's own tailnet; k3s-dmz1 is its only other member
+  state: planned
+  phase: 8
+  host: relay1
+  stack: systemd
+  depends_on: []
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+  exposure:
+    dns_names:
+    - relay
+  notes: |
+    Issue #148. Control traffic on 443 under its own name, through Traefik.
+    The ACL lets relay1 reach only k3s-dmz1's dedicated entrypoint (8444) and
+    the deployed games' UDP ports; management paths are open (issue #156). Separate from the household Tailscale
+    tailnet (issue #146), so a compromised relay can't reach admin access
+    or backups. Its state is rebuilt by re-enrolling k3s-dmz1, so no backup.
+- name: blog
+  description: mikewashere.com
+  state: planned
+  phase: 8
+  host: k3s-dmz1
+  stack: k3s
+  depends_on:
+  - public-entry-point
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+  exposure:
+    dns_names:
+    - '@'
+    - www
+  notes: |
+    Issue #96. Until then it runs on lightsail1. In Phase 8 it is the first
+    DMZ app: a Caddy image built by the pipeline and pulled from Zot. The bare
+    domain is canonical; Traefik redirects www to it.
+- name: landing-page
+  description: The Narly.Ninja landing page, narly.ninja
+  state: planned
+  phase: 8
+  host: k3s-dmz1
+  stack: k3s
+  depends_on:
+  - public-entry-point
+  - status-checks
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+  exposure:
+    dns_names:
+    - '@'
+    - www
+  notes: |
+    Issue #127. The second DMZ app after the blog: a static Caddy image built
+    by the Infra pipeline and pulled from Zot. Its template sits in the Infra
+    repo next to the public-names file, and its links are generated from the
+    listed names (dns.yml `listed`), so a new published name updates the page
+    in the same merge request. Traefik redirects www to the apex. Lights come
+    from narly.ninja/status.json (Gatus); grey when it can't be read. Never
+    links pass, downloads or the internal Homepage.
+- name: status-checks
+  description: Gatus, the landing page's status lights
+  state: planned
+  phase: 8
+  host: k3s-dmz1
+  stack: k3s
+  depends_on:
+  - k3s-dmz
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+  notes: |
+    Issue #127. Checks each listed name from the outside every minute, through
+    public DNS (direct-dns-zones-to-public-resolvers-*) and internet-web; no
+    new rule. watch is checked through relay1 like the rest (issue #148): the
+    house's address is in Friend_Countries. Its DMZ NetworkPolicy allows out
+    only DNS and TCP 443. Config is generated from the
+    listed names.
+    Traefik routes narly.ninja/status.json to it, carrying only listed
+    entries; its own dashboard is never public. Sends no alerts: Prometheus
+    stays the single alert source. Green under 2 s, yellow at 2 s or more or
+    one of the last 5 failed, red when the last 2 failed.
+- name: zot
+  description: Registry for custom DMZ images, such as the blog
+  state: planned
+  phase: 8
+  host: k3s-dmz1
+  stack: k3s
+  depends_on:
+  - k3s-dmz
+  integrations:
+    openbao: false
+    stepca: true
+    sso: false
+    backup: K8up
+  notes: |
+    Issue #96. Runners push over devops-to-zot; DMZ nodes pull locally. The
+    step-ca certificate arrives with the daily DMZ secret job; the push
+    credential stays in OpenBao. Old blog images are pruned to the last 10.
+- name: downloads
+  description: The blog's download mirror, downloads.narly.ninja
+  state: planned
+  phase: 8
+  host: k3s-dmz1
+  stack: k3s
+  depends_on:
+  - k3s-dmz
+  - file-server
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+  exposure:
+    dns_names:
+    - downloads
+    via_proxy: true
+  notes: |
+    Issue #116. A stock Caddy Deployment, no custom image, mounting file1's
+    read-only downloads export; no directory listing, SHA256SUMS served.
+    Reached worldwide through relay1 and the dedicated entrypoint (issue
+    #148), never the tunnel (Cloudflare's large-files clause), with a Traefik in-flight limit
+    of 4 requests per source IP and no bandwidth cap. The DMZ default-deny
+    NetworkPolicy lets this pod reach file1 on 2049. The data is backed up
+    on file1 (file-server), not here. The blog redirects /downloads/* here.
+- name: blog-lightsail
+  description: mikewashere.com and its downloads until the Phase 8 move
+  state: present
+  phase: -1
+  host: lightsail1
+  stack: native
+  depends_on: []
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+  exposure:
+    dns_names:
+    - downloads
+  notes: |
+    Issue #96. Kept untouched for 30 days after the blog's cutover to the
+    DMZ cluster (Phase 8 or earlier; issue #148) as the rollback path. Serves downloads.mikewashere.com until it is deleted with
+    lightsail1, once the 30 days have passed and a download through
+    downloads.narly.ninja from outside the house matches SHA256SUMS
+    (issue #116).
+- name: jellyfin
+  description: Media server; video transcoding off
+  state: planned
+  phase: 8
+  host: k3s-dmz1
+  stack: k3s
+  depends_on:
+  - k3s-dmz
+  - file-server
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+  exposure:
+    dns_names:
+    - jellyfin
+    - watch
+    via_proxy: true
+  notes: |
+    Issue #111: the only media server. Friends reach watch.narly.ninja
+    through relay1, US only, to a dedicated Traefik entrypoint (issue #148); every
+    library, 4K included, at most 2 active sessions each, no bitrate cap.
+    Wizarr invites friends; Seerr and Wizarr sign in with Jellyfin accounts.
+    The Webhook plugin posts to Discord and Pushover; Playback Reporting
+    feeds jellyfin-exporter.
+- name: jellyfin-exporter
+  description: jellyfin_exporter, Jellyfin metrics for Prometheus
+  state: planned
+  phase: 8
+  host: k3s-dmz1
+  stack: k3s
+  depends_on:
+  - jellyfin
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+  notes: Issue #111; replaces Tautulli's statistics. Scraped over metrics-to-jellyfin-exporter (TCP 9594).
+- name: game-servers
+  description: Valheim, V Rising, Foundry, AutoMuteUs and Galactus
+  state: planned
+  phase: 8
+  host: k3s-dmz1
+  stack: k3s
+  depends_on:
+  - public-entry-point
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: K8up, append-only exception
+  notes: |
+    AutoMuteUs keeps its own databases in the DMZ. Foundry and the Galactus
+    capture endpoint come through the tunnel; Valheim and V Rising by name
+    through relay1's UDP routers over the Headscale tailnet (issue #148). A
+    game's relay route, host firewall port and DNS name exist only while it
+    is deployed. The pods use hostPort, outside the mesh. relay1's go-live
+    proof checks whether Steam lists the home or the relay address; if the
+    home, the server is unlisted.
+- name: wizarr
+  description: Invitations to the media server
+  state: planned
+  phase: 8
+  host: k3s-dmz1
+  stack: k3s
+  depends_on:
+  - public-entry-point
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: K8up, append-only exception
+  exposure:
+    dns_names:
+    - join
+  notes: Moved from App-Servers (issue #95). SQLite; talks only to the media server.
+- name: psitransfer
+  description: Temporary file transfers
+  state: planned
+  phase: 8
+  host: k3s-dmz1
+  stack: k3s
+  depends_on:
+  - public-entry-point
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+  exposure:
+    dns_names:
+    - send
+  notes: Moved from App-Servers (issue #95). Node-local storage, not backed up; upload password, admin page blocked at the edge, files expire.
+- name: klipper
+  description: Klipper, Moonraker, Mainsail, Crowsnest, Spoolman
+  state: present
+  phase: 9
+  host: printfil1
+  stack: systemd
+  depends_on: []
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+  exposure:
+    dns_names:
+    - spoolman
+  notes: Printer runs today; moves to Fabrication in Phase 1.
+- name: home-assistant
+  description: Home Assistant OS, the smart home hub
+  state: planned
+  phase: 9
+  host: ha1
+  stack: appliance
+  depends_on:
+  - internal-proxy
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: vzdump of the whole VM to file1
+  exposure:
+    dns_names:
+    - ha
+    via_proxy: true
+  notes: |
+    Issue #98. Own login with TOTP, since forward auth breaks the mobile
+    app. Its Frigate integration sends detections to Pushover; the Nabu Casa
+    companion-app push is not used.
+- name: frigate
+  description: NVR for the cameras, with Mosquitto on the same host
+  state: planned
+  phase: 9
+  host: nvr1
+  stack: systemd
+  depends_on:
+  - internal-proxy
+  - authelia
+  - restic-rest-server
+  integrations:
+    openbao: false
+    stepca: true
+    sso: true
+    backup: restic of saved clips (exports) to the REST server, append-only
+  exposure:
+    dns_names:
+    - cameras
+    via_proxy: true
+  notes: |
+    Issue #98; part of the Surveillance bundle, an optional upgrade. Camera
+    recordings are disposable and never backed up. Phase 9's exit test adds
+    the surveillance checks only once the bundle is bought.
+- name: tdarr
+  description: Overnight CPU transcoding of 1080p libraries
+  state: planned
+  phase: 9
+  host: k3s-app1
+  stack: k3s
+  depends_on:
+  - file-server
+  - internal-proxy
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+  exposure:
+    dns_names:
+    - tdarr
+    via_proxy: true
+- name: security-onion
+  description: Network IDS and every log
+  state: planned
+  phase: 10
+  host: secmon1
+  stack: appliance
+  depends_on: []
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
+  exposure:
+    dns_names:
+    - so
+- name: crowdsec-lapi
+  description: The one CrowdSec LAPI
+  state: planned
+  phase: 10
+  host: crowdsec1
+  stack: systemd
+  depends_on: []
+  integrations:
+    openbao: false
+    stepca: false
+    sso: false
+    backup: none
 
-  # ==========================================================================
-  # Phase 0 - Trusted base
-  # ==========================================================================
-
-  - name: gitlab
-    description: SCM, CI/CD, container registry
-    state: planned
-    phase: 0
-    host: devops1
-    stack: native
-    depends_on: []
-    integrations:
-      vault: true
-      stepca: true
-      authentik: true        # federated in Phase 2; not at Phase 0 first-boot
-      backup: nightly
-    exposure:
-      dns_names:
-        - gitlab
-        - registry.gitlab
-      ports: [22, 80, 443]
-      via_traefik: false      # GitLab Omnibus serves its own TLS; not Traefik-fronted
-    notes: |
-      Phase 0 anchor. Initial deploy uses GitLab Omnibus self-signed cert until
-      step-ca is operational; cert swapped on first run.
-      SSH push (port 22) is direct-to-host. Web UI (443) and registry are
-      reachable via the same hostname.
-      Backup target: File1, mirrored to Backup1.
-
-  - name: vault
-    description: HashiCorp Vault (secrets only - no PKI engine)
-    state: planned
-    phase: 0
-    host: vault1
-    stack: native
-    depends_on: []
-    integrations:
-      vault: false           # it IS Vault
-      stepca: true
-      authentik: false       # uses native auth methods (AppRole, etc.)
-      backup: nightly
-    exposure:
-      dns_names: [vault]
-      ports: [8200]
-      via_traefik: false     # Vault serves its own TLS API
-    notes: |
-      Phase 0 anchor. KV v2 + AppRole + AWS KMS auto-unseal.
-      PKI engine deliberately disabled per ADR-001 (CA lives at stepca1).
-      Recovery keys Shamir-split across 3 physical locations.
-
-  - name: stepca
-    description: step-ca certificate authority (X.509 + SSH)
-    state: planned
-    phase: 0
-    host: stepca1
-    stack: native
-    depends_on: []
-    integrations:
-      vault: false           # offline root, intermediate provisioned at install
-      stepca: false          # it IS step-ca
-      authentik: true        # OIDC provisioner federates to Authentik (Phase 2)
-      backup: nightly
-    exposure:
-      dns_names: [ca]
-      ports: [443, 9000]
-      via_traefik: false     # step-ca serves its own TLS
-    notes: |
-      Phase 0 anchor. ACME, JWK, OIDC provisioners enabled.
-      Authentik OIDC provisioner config has placeholder URL until Phase 2.
-      Root CA generated offline, key on USB + hardware token.
-
-  - name: file-server
-    description: SMB shares, Syncthing, AD-integrated home directories
-    state: planned
-    phase: 0
-    host: file1
-    stack: systemd
-    depends_on: [dc1-samba]  # for AD-integrated mode in Phase 2 full image
-    integrations:
-      vault: true
-      stepca: true
-      authentik: false       # uses AD auth via dc1
-      backup: nightly
-    exposure:
-      ports: [139, 445, 22000, 21027]
-      via_traefik: false
-    notes: |
-      Phase 0 anchor. Bootstrap image: standalone Samba. Full image (Phase 2):
-      AD-integrated with Folder Redirection share for Windows clients.
-      Holds bootstrap artifacts, backup-restore staging, and is itself
-      backed up nightly to Backup1.
-      Direct SMB access via file1.mikewashere.lan; no Traefik alias needed.
-
-  - name: gitlab-runner-internal
-    description: First GitLab Runner, internal-devops tag, Docker executor
-    state: planned
-    phase: 0
-    host: runner1
-    stack: docker_compose
-    depends_on: [gitlab]
-    integrations:
-      vault: true
-      stepca: true
-      authentik: false
-      backup: none           # stateless; can be rebuilt
-    exposure:
-      ports: []              # no inbound services; runner polls GitLab outbound
-      via_traefik: false
-    notes: |
-      Phase 0 anchor. Tagged `internal-devops` for trust-tier separation.
-      A second runner (`dmz-devops` tag) added in Phase 3 for jobs deploying
-      to DMZ-tier services.
-
-  - name: bastion-sshd
-    description: Hardened SSH gateway with step-ca cert validation
-    state: planned
-    phase: 0
-    host: bastion1
-    stack: systemd
-    depends_on: [stepca]
-    integrations:
-      vault: true
-      stepca: true
-      authentik: true        # SSH cert flow via Authentik OIDC (Phase 2)
-      backup: weekly         # configuration only; auth state is short-lived
-    exposure:
-      ports: [22]
-      via_traefik: false
-    notes: |
-      Phase 0 anchor on physical Pi5. Pre-Phase-2: validates against
-      pre-distributed pubkeys. Post-Phase-2: full step-ca SSH cert flow
-      with Authentik OIDC. Per ADR-022 and ADR-024.
-
-  # ==========================================================================
-  # Phase 2 - Identity
-  # ==========================================================================
-
-  - name: dc1-samba
-    description: Samba Active Directory Domain Controller
-    state: planned
-    phase: 2
-    host: dc1
-    stack: systemd
-    depends_on: []
-    integrations:
-      vault: true
-      stepca: true
-      authentik: false       # IS the upstream identity source
-      backup: nightly
-    exposure:
-      ports: [53, 88, 135, 389, 445, 464, 636, 3268]
-      via_traefik: false
-    notes: |
-      Provisioned at first run; subsequent runs verify state.
-      Uses Samba's internal DNS (SAMBA_INTERNAL backend).
-
-  - name: authentik
-    description: Identity provider (OIDC, SAML, LDAP federation)
-    state: planned
-    phase: 2
-    host: auth1
-    stack: docker_compose
-    depends_on: [db1-postgres, dc1-samba]
-    integrations:
-      vault: true
-      stepca: true
-      authentik: false       # IS Authentik
-      backup: nightly
-    exposure:
-      dns_names: [authentik]
-      ports: [80, 443]
-      via_traefik: true
-    notes: |
-      Federates to dc1-samba via LDAP. First federated app: GitLab.
-      stepca's OIDC provisioner federates here for SSH cert issuance.
-
-  - name: db1-postgres
-    description: Shared Postgres for platform services
-    state: planned
-    phase: 2
-    host: db1
-    stack: docker_compose
-    depends_on: []
-    integrations:
-      vault: true
-      stepca: true
-      authentik: false
-      backup: nightly
-    exposure:
-      ports: [5432]
-      via_traefik: false     # direct TLS connections from services
-    notes: Backs Authentik (Phase 2). Direct access via db1.mikewashere.lan.
-
-  - name: db1-redis
-    description: Shared Redis cache for platform services
-    state: planned
-    phase: 2
-    host: db1
-    stack: docker_compose
-    depends_on: []
-    integrations:
-      vault: true
-      stepca: true
-      authentik: false
-      backup: weekly         # cache layer; less critical
-    exposure:
-      ports: [6379]
-      via_traefik: false
-    notes: Used by Authentik for session state.
-
-  # ==========================================================================
-  # Phase 3 - Ingress, ARM pipeline, tooling
-  # ==========================================================================
-
-  - name: traefik-seeder1
-    description: Public-facing reverse proxy (the main ingress)
-    state: planned
-    phase: 3
-    host: seeder1
-    stack: docker_compose
-    depends_on: [stepca]
-    integrations:
-      vault: true
-      stepca: true
-      authentik: true        # ForwardAuth middleware
-      backup: weekly
-    exposure:
-      dns_names: [traefik.seeder1]
-      ports: [80, 443]
-      via_traefik: false     # IS Traefik
-    notes: |
-      ACME via stepca for internal services; Let's Encrypt for external domain.
-      All external traffic ingresses here. Authentik ForwardAuth middleware
-      gates every request.
-
-  - name: adguard-seeder1
-    description: Primary internal DNS resolver
-    state: planned
-    phase: 3
-    host: seeder1
-    stack: docker_compose
-    depends_on: []
-    integrations:
-      vault: true
-      stepca: true
-      authentik: true        # admin UI gated by Authentik
-      backup: nightly        # filter lists + custom DNS entries
-    exposure:
-      dns_names: [adguard.seeder1]
-      ports: [53]
-      via_traefik: true      # admin UI through Traefik; DNS port direct
-    notes: |
-      Authoritative for mikewashere.lan; DNS authority moves here from routers
-      in Phase 3. Routers become DNS forwarders.
-
-  - name: adguard-seeder2
-    description: Secondary internal DNS resolver (Pi5 appliance)
-    state: planned
-    phase: 3
-    host: seeder2
-    stack: docker_compose
-    depends_on: []
-    integrations:
-      vault: true
-      stepca: true
-      authentik: false       # appliance role; no UI access needed
-      backup: nightly
-    exposure:
-      dns_names: [adguard.seeder2]
-      ports: [53]
-      via_traefik: false
-    notes: |
-      Pi5 appliance. Replicates zones from adguard-seeder1.
-      Migrated to immutable arm64 image as part of Phase 3 ARM pipeline work.
-
-  - name: tailscale-tunnel1
-    description: VPN concentrator for remote access
-    state: planned
-    phase: 3
-    host: tunnel1
-    stack: docker_compose
-    depends_on: []
-    integrations:
-      vault: true
-      stepca: true
-      authentik: false       # uses Tailscale's own coordinator auth
-      backup: weekly
-    exposure:
-      ports: [41641]         # WireGuard UDP
-      via_traefik: false
-    notes: |
-      Headscale or Tailscale; specific choice deferred.
-      Separated from Seeder1 for blast-radius isolation per ADR-024.
-
-  - name: nut-server
-    description: NUT UPS coordinator
-    state: present           # NUT1 hardware exists; service partially configured
-    phase: 3
-    host: nut1
-    stack: systemd
-    depends_on: []
-    integrations:
-      vault: true
-      stepca: true
-      authentik: false
-      backup: weekly
-    exposure:
-      ports: [3493]
-      via_traefik: false
-    notes: |
-      Migrates to immutable arm64 image in Phase 3.
-      Every host runs nut_client (in `common` Ansible role) listening for
-      coordinated shutdowns from here.
-
-  - name: renovate
-    description: Self-hosted dependency update bot
-    state: planned
-    phase: 3
-    host: devops1
-    stack: docker_compose
-    depends_on: [gitlab]
-    integrations:
-      vault: true
-      stepca: false          # talks to GitLab via internal network
-      authentik: false       # runs as scheduled pipeline; no UI
-      backup: none           # stateless config
-    exposure:
-      ports: []
-      via_traefik: false
-    notes: |
-      Scheduled GitLab pipeline runs renovate to open Tier-A auto-merge MRs
-      against Compose files per ADR-021.
-
-  - name: prometheus
-    description: Metrics collection
-    state: planned
-    phase: 3
-    host: secmon1
-    stack: docker_compose
-    depends_on: []
-    integrations:
-      vault: true
-      stepca: true
-      authentik: true
-      backup: nightly
-    exposure:
-      dns_names: [prometheus]
-      ports: [9090]
-      via_traefik: true
-
-  - name: grafana
-    description: Dashboards
-    state: planned
-    phase: 3
-    host: secmon1
-    stack: docker_compose
-    depends_on: [prometheus]
-    integrations:
-      vault: true
-      stepca: true
-      authentik: true
-      backup: nightly
-    exposure:
-      dns_names: [grafana]
-      ports: [3000]
-      via_traefik: true
-
-  - name: klipper
-    description: 3D printer controller (Klipper + Moonraker)
-    state: present           # printer exists and runs; service in-pipeline pending
-    phase: 3
-    host: printfil1
-    stack: docker_compose
-    depends_on: []
-    integrations:
-      vault: true
-      stepca: true
-      authentik: true
-      backup: nightly        # config files + macros
-    exposure:
-      dns_names: [klipper, printer-fil1]
-      ports: [80, 443, 7125]  # Moonraker API + web UI
-      via_traefik: true
-    notes: Phase 3 brings the existing hand-built service into the pipeline.
-
-  - name: feeder1-apps
-    description: Internal downloader and content services (specific stack TBD)
-    state: planned
-    phase: 3
-    host: feeder1
-    stack: docker_compose
-    depends_on: [authentik, file-server]
-    integrations:
-      vault: true
-      stepca: true
-      authentik: true
-      backup: nightly        # config; media itself is on file1
-    exposure:
-      ports: []              # TBD per app
-      via_traefik: true
-    notes: |
-      Placeholder. Specific apps (arr stack, etc.) decided during Phase 3
-      design discussions. Update this entry then.
-
-  # ==========================================================================
-  # Phase 6 - Platform maturation
-  # ==========================================================================
-
-  - name: kestra
-    description: Cross-system workflow orchestration
-    state: planned
-    phase: 6
-    host: devops1
-    stack: docker_compose
-    depends_on: [db1-postgres]
-    integrations:
-      vault: true
-      stepca: true
-      authentik: true
-      backup: nightly
-    exposure:
-      dns_names: [kestra]
-      ports: [8080]
-      via_traefik: true
-    notes: |
-      Backup verification, cert renewal monitoring, scheduled DR drills.
-      In Phase 1, simpler cron+script does backup verification; Kestra takes
-      over here when real cross-system workflows are warranted.
-
-  - name: loki
-    description: Log aggregation
-    state: planned
-    phase: 6
-    host: secmon1
-    stack: docker_compose
-    depends_on: []
-    integrations:
-      vault: true
-      stepca: true
-      authentik: true
-      backup: weekly         # log retention configured separately
-    exposure:
-      dns_names: [loki]
-      ports: [3100]
-      via_traefik: true
-    notes: Receives logs from every host's journal-shipper (in `common` role).
-
-  # ==========================================================================
-  # Future placeholders - entries added as designed
-  # ==========================================================================
-  # secmon1 will host additional services (Wazuh, Alertmanager, etc.) decided
-  # during Phase 3 design discussions. ML1's specific stack (Ollama, vLLM, etc.)
-  # decided during AI/ML productionization in Phase 7+.
+# ============================================================================
+# Decommissioned: retired by a decision, kept so older docs still resolve
+# ============================================================================
+- name: plex
+  description: Retired; Jellyfin is the only media server (issue #111)
+  state: decommissioned
+- name: tautulli
+  description: Retired with Plex; jellyfin-exporter and Jellyfin's Webhook plugin replace it (issue #111)
+  state: decommissioned
+- name: ddns-updater
+  description: Retired; watch, downloads and the games reach the house through relay1, so the home's IP is never published (issue #148)
+  state: decommissioned

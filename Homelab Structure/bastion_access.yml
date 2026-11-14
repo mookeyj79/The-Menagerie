@@ -6,6 +6,22 @@
 # here still needs a matching fw_rules.yml accept rule for the reach to
 # actually work end to end.
 #
+# How admins get in (issues #64, #66, #81):
+#   - SSH to the bastion's VLAN 101 address (fw_groups.yml Bastion_SSH) from
+#     Users, or from an admin laptop on the household tailnet to bastion1's
+#     tailscale0 (fw_groups.yml Remote_Admins, issue #146; the tailnet access
+#     rules and bastion1's host firewall filter it). Nothing else in Users reaches
+#     Management.
+#   - With a step-ca SSH certificate of about 16 hours, issued after SSO, to a
+#     separate admin account that requires a YubiKey. Daily logins are
+#     ordinary domain users and never get here.
+#   - Onward with the same certificate (ProxyJump, or a tunnel to a web
+#     interface). There is no bastion service key: targets trust the step-ca
+#     user CA, not the bastion.
+#   - Break-glass: a YubiKey-resident ed25519-sk key in authorized_keys on one
+#     local account per Linux host, deployed by Ansible. Needs neither SSO
+#     nor the CA, and the admin path survives SSO, file1 and pve5 outages.
+#
 # ============================================================================
 # Schema
 # ============================================================================
@@ -16,21 +32,14 @@
 #     authorized_targets  : list of fw_groups.yml names every member may
 #                           reach onward
 #
-#   identities           : individual humans with bastion accounts
-#     user                : short username
-#     totp_enrolled       : bool
-#     ssh_pubkey_ref      : path to this person's own public key; used only
-#                           for authenticating TO bastion, never distributed
-#                           onward
+#   identities           : individual humans with admin accounts
+#     user                : admin account name (not the daily login)
+#     auth                : how the account authenticates to the bastion
+#     break_glass_key_ref : path to this person's ed25519-sk public key
 #     member_of           : optional list of identity_groups names
 #     authorized_targets  : list of fw_groups.yml names, additive to
 #                           whatever member_of already grants
 #     state               : active | disabled
-#
-#   service_identity      : bastion1's own onward-facing keypair; single
-#                           entry. This is what every target authorizes,
-#                           not any individual human key.
-#     public_key_ref        : path to bastion1's onward service public key
 #
 # ============================================================================
 
@@ -41,19 +50,19 @@ identity_groups:
       - Hardware_Management
       - Server_Management
       - Power_Management
-      - Internal_Servers
-      - Internal_Devices
-      - Internal_DevOps
-      - DMZ_Servers
-      - Vaults
+      - Central_Servers
+      - App_Servers
+      - DevOps
+      - Security
+      - DMZ
+      - Devices
+      - Fabrication
+      - Untrusted_Devices
 
 identities:
-  - user: mike
-    totp_enrolled: false
-    ssh_pubkey_ref: ~/.sops/keys/mike_bastion.pub
+  - user: mike-admin
+    auth: step-ca SSH certificate after SSO, YubiKey required
+    break_glass_key_ref: ~/.ssh/id_ed25519_sk_breakglass.pub
     member_of: [senior_admins]
     authorized_targets: []
     state: active
-
-service_identity:
-  public_key_ref: ~/.sops/keys/bastion1_service.pub

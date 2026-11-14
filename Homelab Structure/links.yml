@@ -1,0 +1,67 @@
+# ============================================================================
+# links.yml - Physical cabling between network devices
+# ============================================================================
+# Answers "what plugs into what, on which port." Holds the decided star
+# (issue #64): router2 and router3 each link only to router1. A link not
+# cabled that way yet carries `state: planned`, and one that goes away
+# carries `state: decommissioned` until Phase 1 recables it.
+#
+# Schema:
+#   a, b      : each end, { host, port }. host is a systems.yml hostname. port
+#               is the physical port, or null if not yet confirmed.
+#   medium    : direct (a cable between the two ends) | switched
+#   vlans     : optional list of vlans.yml names tagged on this link
+#   confirmed : true if the owner has confirmed this link exists as described
+#   state     : optional; present (default) | planned | decommissioned
+#   notes     : optional
+# ============================================================================
+
+links:
+  - a: { host: router1, port: null }
+    b: { host: router2, port: null }
+    medium: direct
+    vlans: [architecture-1]
+    confirmed: true
+
+  - a: { host: router1, port: null }
+    b: { host: router3, port: GigabitEthernet0/0 }
+    medium: direct
+    vlans: [architecture-2]
+    confirmed: true
+    notes: Static routes only; router3 leaves OSPF in Phase 1.
+
+  - a: { host: router2, port: null }
+    b: { host: router3, port: GigabitEthernet0/1 }
+    medium: direct
+    confirmed: true
+    state: decommissioned
+    notes: Live today on VLAN 303 (192.168.3.8/30); Phase 1 removes it, recabled last.
+
+  - a: { host: router1, port: null }
+    b: { host: switch1, port: null }
+    medium: direct
+    vlans: [dmz, hardware-management, server-management]
+    confirmed: false
+    state: planned
+    notes: Router1's fourth port. Break-glass takes the fifth.
+
+  - a: { host: switch2, port: null }
+    b: { host: pve5, port: null }
+    medium: direct
+    confirmed: false
+    state: planned
+    notes: Mirror port to pve5's 1G NIC, passed through to secmon1. A mirror port can't be a trunk.
+
+  - a: { host: ispgw1, port: null }
+    b: { host: router1, port: null }
+    medium: direct
+    confirmed: false
+    notes: The gateway sits in front of router1; the cabling has not been confirmed.
+
+  - a: { host: switch2, port: null }
+    b: { host: nvr1, port: null }
+    medium: direct
+    vlans: [surveillance]
+    confirmed: false
+    state: planned
+    notes: Second stack unit, untagged in VLAN 25; the cameras plug into the same unit (issue #98). Optional upgrade.

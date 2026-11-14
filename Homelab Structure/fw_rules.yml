@@ -4,6 +4,14 @@
 # Answers "which source can reach which destination, on what, permit or
 # deny." References fw_groups.yml names for src/dst.
 #
+# The decided policy from "How zones are enforced" (issue #64) and the
+# named exceptions later tickets added. Stateful and deny by default; each
+# rule is enforced on every router the traffic crosses. Ansible also renders
+# these into default-deny inbound nftables on each managed Linux host
+# (issue #83). Rule order is significant: first match wins, so every
+# internal accept sits above drop-unlisted-private and the egress rules.
+# Ports not fixed by a ticket are vendor defaults, set per service at build.
+#
 # ============================================================================
 # Schema
 # ============================================================================
@@ -17,7 +25,7 @@
 #                 rules (those use chain: input instead)
 #   protocol    : tcp | udp | icmp | ospf | any - always a single value,
 #                 never a list. Split multi-protocol policy into separate
-#                 rules (see router3-retronet-dns-dhcp / -icmp for the
+#                 rules (see router3-retronet-dhcp / -icmp for the
 #                 pattern).
 #   ports       : list of dst ports. Each entry is an int, or a string
 #                 "N-M" for a range (see sunshine-stream-udp).
@@ -26,14 +34,34 @@
 #                   - input:   traffic destined FOR the router itself
 #                   - forward: traffic routed THROUGH the router
 #   applies_to  : list of systems.yml router hostnames this rule renders on
+#   dnat        : optional; a port forward. Only on a forward-chain accept
+#                 with protocol tcp or udp and ports. The router also
+#                 renders a dst-nat rule for the same protocol and ports,
+#                 and this accept matches only connections it forwarded
+#                 (connection-nat-state=dstnat), so the forward and its
+#                 accept live in one entry. The rule must sit above
+#                 drop-unlisted-private, because after dst-nat the
+#                 destination is a private address.
+#                   in_interface_list : interface list the traffic arrives
+#                                       on (WAN)
+#                   to                : systems.yml hostname the traffic is
+#                                       forwarded to; must be a host member
+#                                       of a dst group
+#                   to_port           : optional; the port on `to` when it
+#                                       differs from the public port. The
+#                                       dst-nat rewrites the port, and the
+#                                       accept matches the rewritten port.
 #   notes       : optional; structural context only
+#
+# No rule uses dnat today: the house has zero inbound ports (issue #148), and
+# public traffic arrives over Cloudflare Tunnel or the Linode relay.
 #
 # ============================================================================
 
 rules:
 
   # ==========================================================================
-  # Baseline / self-protection (input chain) - all routers
+  # Router self-protection (input chain)
   # ==========================================================================
 
   - name: input-drop-invalid
@@ -42,14 +70,6 @@ rules:
     action: drop
     chain: input
     applies_to: [router1, router2]
-
-  - name: input-block-wan-dns-relay
-    src: any
-    protocol: udp
-    ports: [53]
-    action: drop
-    chain: input
-    applies_to: [router1]
 
   - name: input-accept-established
     src: any
@@ -66,59 +86,38 @@ rules:
     chain: input
     applies_to: [router1, router2]
 
-  - name: lan-gateway-services
-    src: [Internal_Servers, Internal_Users, Internal_Guest_Network, Internal_Smart_Home,
-          Internal_Devices, Internal_Surveillance, Internal_DevOps]
+  - name: input-block-wan-dns-relay
+    src: any
     protocol: udp
-    ports: [53, 67, 123]
-    action: accept
+    ports: [53]
+    action: drop
     chain: input
-    applies_to: [router1, router2]
+    applies_to: [router1]
+    notes: in-interface-list=WAN
 
-  - name: architecture-router-services
-    src: Architecture
+  - name: client-zone-dhcp
+    description: DHCP from each client zone's gateway router
+    src: [Users, Guest, Devices, Smart_Home, Surveillance]
     protocol: udp
-    ports: [53, 123]
-    action: accept
-    chain: input
-    applies_to: [router1, router2]
-
-  - name: hardware-mgmt-self-access
-    description: Admin plane access to router services (SSH/HTTP/HTTPS/Winbox)
-    src: [Hardware_Management, Emergency_Console_Access]
-    protocol: tcp
-    ports: [22, 80, 443, 8291]
-    action: accept
-    chain: input
-    applies_to: [router1, router2]
-
-  - name: server-mgmt-router-services
-    src: Server_Management
-    protocol: udp
-    ports: [53, 123]
-    action: accept
-    chain: input
-    applies_to: [router1, router2]
-
-  - name: power-mgmt-router-services
-    src: Power_Management
-    protocol: udp
-    ports: [53, 123]
+    ports: [67]
     action: accept
     chain: input
     applies_to: [router2]
 
-  - name: devops-api-ssl
-    src: DevOps
+  - name: admin-to-router-services
+    description: SSH, HTTPS and Winbox on the routers, from the bastion and break-glass only
+    src: [Bastions, Emergency_Console_Access]
     protocol: tcp
-    ports: [8729]
+    ports: [22, 443, 8291]
     action: accept
     chain: input
     applies_to: [router1, router2]
 
-  - name: icmp-rate-limited
-    src: any
-    protocol: icmp
+  - name: devops-router-api
+    description: RouterOS API over TLS for the pipeline
+    src: Runners
+    protocol: tcp
+    ports: [8729]
     action: accept
     chain: input
     applies_to: [router1, router2]
@@ -126,6 +125,14 @@ rules:
   - name: ospf-on-architecture
     src: Architecture
     protocol: ospf
+    action: accept
+    chain: input
+    applies_to: [router1, router2]
+    notes: Authenticated OSPF on architecture-1 only; zone VLANs are passive and router3 is not a neighbour.
+
+  - name: icmp-rate-limited
+    src: any
+    protocol: icmp
     action: accept
     chain: input
     applies_to: [router1, router2]
@@ -146,7 +153,7 @@ rules:
     applies_to: [router1, router2]
 
   # ==========================================================================
-  # Baseline / self-protection (forward chain) - all routers
+  # Forward baseline
   # ==========================================================================
 
   - name: forward-drop-invalid
@@ -162,200 +169,138 @@ rules:
     action: accept
     chain: forward
     applies_to: [router1, router2]
+    notes: FastTrack applies to these, except RetroNet and Guest on router1, whose limits depend on queues.
 
   - name: emergency-access-isolation
-    src: any
-    dst: any
+    src: Emergency_Console_Access
     protocol: any
     action: drop
     chain: forward
     applies_to: [router1, router2]
-    notes: Applied both directions on the emergency-access interface itself, independent of address-list membership.
+    notes: Applied both directions on the off-bridge port; it reaches only its own router.
+
+  - name: ipv6-blocked
+    src: any
+    protocol: any
+    action: drop
+    chain: forward
+    applies_to: [router1, router2]
+    notes: "IPv4 only: IPv6 is off on router1's internet side and dropped in every zone (rendered in the IPv6 firewall)."
 
   # ==========================================================================
-  # Internet egress
+  # DNS and time
   # ==========================================================================
 
-  - name: internet-egress-router1
-    src: [Architecture, DMZ_Servers, Internal_Servers, Internal_Users,
-          Internal_Guest_Network, Internal_Smart_Home, Internal_Devices,
-          Internal_RetroNet, Internal_DevOps]
-    protocol: any
-    action: accept
-    chain: forward
-    applies_to: [router1]
-    notes: out-interface-list=WAN
-
-  - name: internet-egress-router2
-    src: [Internal_Servers, Internal_Users, Internal_Guest_Network,
-          Internal_Smart_Home, Internal_Devices, Internal_RetroNet,
-          Internal_DevOps]
-    protocol: any
-    action: accept
-    chain: forward
-    applies_to: [router2]
-    notes: out-interface-list=Architecture
-
-  - name: mgmt-planes-to-bastion-proxy
-    description: Hardware/Server/Power management route internet-bound traffic through bastion's proxy
-    src: [Hardware_Management, Server_Management, Power_Management]
-    dst: Bastions
+  - name: unbound-zones-to-resolvers-tcp
+    description: Unbound DNS and chrony; Smart Home and Devices get public names and blocklists only
+    src: [Users, App_Servers, DevOps, Security, Smart_Home, Devices, NVR, Hardware_Management, Server_Management, Power_Management]
+    dst: Resolvers
     protocol: tcp
-    action: accept
-    chain: forward
-    applies_to: [router1, router2]
-    notes: Port set by proxy_allowlist.yml's rendering target, not fixed here.
-
-  # ==========================================================================
-  # Management plane self-access + automation reach
-  # ==========================================================================
-
-  - name: hardware-mgmt-self
-    src: Hardware_Management
-    dst: Hardware_Management
-    protocol: any
-    action: accept
-    chain: forward
-    applies_to: [router1, router2]
-
-  - name: devops-to-hardware-mgmt
-    src: Internal_DevOps
-    dst: Hardware_Management
-    protocol: any
+    ports: [53]
     action: accept
     chain: forward
     applies_to: [router2]
 
-  - name: server-mgmt-self
-    src: Server_Management
-    dst: Server_Management
-    protocol: any
-    action: accept
-    chain: forward
-    applies_to: [router1, router2]
-
-  - name: devops-to-server-mgmt
-    src: Internal_DevOps
-    dst: Server_Management
-    protocol: any
+  - name: unbound-zones-to-resolvers-udp
+    description: Unbound DNS and chrony; Smart Home and Devices get public names and blocklists only
+    src: [Users, App_Servers, DevOps, Security, Smart_Home, Devices, NVR, Hardware_Management, Server_Management, Power_Management]
+    dst: Resolvers
+    protocol: udp
+    ports: [53, 123]
     action: accept
     chain: forward
     applies_to: [router2]
 
-  # ==========================================================================
-  # Bastion-mediated admin access (human access, centralized)
-  # ==========================================================================
+  - name: resolvers-recursion-tcp
+    description: Only the resolvers reach the internet's root, TLD and authoritative servers
+    src: Resolvers
+    dst: any
+    protocol: tcp
+    ports: [53]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: "Issue #120. Unbound recurses, so the servers can't be named. out-interface-list=WAN on router1 and the uplink to router1 on router2 keep it to the internet. Queries cross the ISP in clear; accepted."
 
-  - name: bastion-to-hardware-mgmt
-    src: Bastions
-    dst: Hardware_Management
-    protocol: any
+  - name: resolvers-recursion-udp
+    description: Only the resolvers reach the internet's root, TLD and authoritative servers
+    src: Resolvers
+    dst: any
+    protocol: udp
+    ports: [53]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: Issue #120. As resolvers-recursion-tcp.
+
+  - name: direct-dns-zones-to-public-resolvers-tcp
+    description: Guest, RetroNet and DMZ use Quad9 and Cloudflare directly
+    src: [Guest, RetroNet, DMZ]
+    dst: Public_Resolvers
+    protocol: tcp
+    ports: [53]
     action: accept
     chain: forward
     applies_to: [router1, router2]
 
-  - name: bastion-to-server-mgmt
-    src: Bastions
-    dst: Server_Management
-    protocol: any
+  - name: direct-dns-zones-to-public-resolvers-udp
+    description: Guest, RetroNet and DMZ use Quad9 and Cloudflare directly
+    src: [Guest, RetroNet, DMZ]
+    dst: Public_Resolvers
+    protocol: udp
+    ports: [53]
     action: accept
     chain: forward
     applies_to: [router1, router2]
 
-  - name: bastion-to-power-mgmt
-    src: Bastions
-    dst: Power_Management
-    protocol: any
+  - name: dns-bypass-drop-tcp
+    description: Plain DNS and DNS over TLS to the internet are dropped for zones that use Unbound
+    src: [Users, App_Servers, DevOps, Security, Smart_Home, Devices, NVR, Central_Servers]
+    dst: any
+    protocol: tcp
+    ports: [53, 853]
+    action: drop
+    chain: forward
+    applies_to: [router1, router2]
+    notes: A redirect is added only for a specific device that breaks. DNS over HTTPS can't be blocked this way; accepted.
+
+  - name: dns-bypass-drop-udp
+    description: Plain DNS and DNS over TLS to the internet are dropped for zones that use Unbound
+    src: [Users, App_Servers, DevOps, Security, Smart_Home, Devices, NVR, Central_Servers]
+    dst: any
+    protocol: udp
+    ports: [53, 853]
+    action: drop
+    chain: forward
+    applies_to: [router1, router2]
+    notes: A redirect is added only for a specific device that breaks. DNS over HTTPS can't be blocked this way; accepted.
+
+  # ==========================================================================
+  # Users
+  # ==========================================================================
+
+  - name: users-to-app-servers-web
+    description: App-Servers web through the internal proxy
+    src: Users
+    dst: App_Nodes
+    protocol: tcp
+    ports: [443]
     action: accept
     chain: forward
     applies_to: [router2]
 
-  - name: bastion-to-dmz-servers
-    src: Bastions
-    dst: DMZ_Servers
-    protocol: any
-    action: accept
-    chain: forward
-    applies_to: [router1]
-
-  - name: bastion-to-internal-servers
-    src: Bastions
-    dst: Internal_Servers
-    protocol: any
+  - name: users-to-sso
+    src: Users
+    dst: SSO
+    protocol: tcp
+    ports: [443]
     action: accept
     chain: forward
     applies_to: [router2]
 
-  - name: bastion-to-internal-devices
-    src: Bastions
-    dst: Internal_Devices
-    protocol: any
-    action: accept
-    chain: forward
-    applies_to: [router2]
-
-  - name: bastion-to-internal-devops
-    src: Bastions
-    dst: Internal_DevOps
-    protocol: any
-    action: accept
-    chain: forward
-    applies_to: [router2]
-
-  # ==========================================================================
-  # DMZ - Servers (Router1)
-  # ==========================================================================
-
-  - name: internal-servers-to-dmz-servers
-    src: Internal_Servers
-    dst: DMZ_Servers
-    protocol: any
-    action: accept
-    chain: forward
-    applies_to: [router1]
-
-  - name: devops-to-dmz-servers
-    src: Internal_DevOps
-    dst: DMZ_Servers
-    protocol: any
-    action: accept
-    chain: forward
-    applies_to: [router1]
-
-  - name: dmz-servers-to-internal-servers
-    src: DMZ_Servers
-    dst: Internal_Servers
-    protocol: any
-    action: accept
-    chain: forward
-    applies_to: [router1]
-
-  # ==========================================================================
-  # Internal - Servers / Devices / DevOps (Router2)
-  # ==========================================================================
-
-  - name: devops-to-internal-servers
-    src: Internal_DevOps
-    dst: Internal_Servers
-    protocol: any
-    action: accept
-    chain: forward
-    applies_to: [router2]
-
-  - name: devops-to-internal-devices
-    src: Internal_DevOps
-    dst: Internal_Devices
-    protocol: any
-    action: accept
-    chain: forward
-    applies_to: [router2]
-
-  # ==========================================================================
-  # CAs - bootstrap
-  # ==========================================================================
-
-  - name: bootstrap-clients-to-cas
-    src: [DMZ_Servers, Internal_Users, Internal_Devices, Internal_DevOps, Server_Management]
+  - name: users-to-ca
+    description: step-ca, including SSH certificates after SSO
+    src: Users
     dst: CAs
     protocol: tcp
     ports: [443]
@@ -363,121 +308,77 @@ rules:
     chain: forward
     applies_to: [router2]
 
-  - name: cas-to-bootstrap-clients
-    src: CAs
-    dst: [Internal_Devices, Internal_DevOps, Server_Management]
+  - name: users-to-directory-tcp
+    description: Samba AD for domain join and login
+    src: Users
+    dst: Directory
+    protocol: tcp
+    ports: [53, 88, 135, 389, 445, 464, 636, 3268, 3269, "49152-65535"]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: users-to-directory-udp
+    description: Samba AD for domain join and login
+    src: Users
+    dst: Directory
+    protocol: udp
+    ports: [53, 88, 123, 389, 464]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: users-to-file-server
+    description: Homes on file1 through router2
+    src: Users
+    dst: FileServers
+    protocol: tcp
+    ports: [445]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: users-to-bastion-ssh
+    src: Users
+    dst: Bastion_SSH
+    protocol: tcp
+    ports: [22]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: users-and-guests-to-printers
+    description: Guests enter the printer's address; no discovery relay
+    src: [Users, Guest]
+    dst: Printers
+    protocol: tcp
+    ports: [515, 631, 9100]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: users-to-fabrication
+    description: Mainsail, Moonraker and Spoolman; Fabrication has no internet
+    src: Users
+    dst: Fabrication_Machines
+    protocol: tcp
+    ports: [80, 443, 7125, 7912]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+    notes: Ports for laser1, cnc1 and cutter1 are added when they are bought.
+
+  - name: users-to-leds
+    src: Users
+    dst: LEDs
     protocol: tcp
     ports: [80]
     action: accept
     chain: forward
     applies_to: [router2]
 
-  # ==========================================================================
-  # FileServers - bootstrap
-  # ==========================================================================
-
-  - name: users-to-fileservers-smb
-    src: Internal_Users
-    dst: FileServers
-    protocol: tcp
-    ports: [139, 445, 5357, 5358]
-    action: accept
-    chain: forward
-    applies_to: [router2]
-
-  - name: users-to-fileservers-smb-discovery
-    src: Internal_Users
-    dst: FileServers
-    protocol: udp
-    ports: [137, 138, 3702]
-    action: accept
-    chain: forward
-    applies_to: [router2]
-
-  - name: dmz-to-fileservers-object-storage
-    src: DMZ_Servers
-    dst: FileServers
-    protocol: tcp
-    ports: [9000]
-    action: accept
-    chain: forward
-    applies_to: [router2]
-
-  - name: devices-to-fileservers-object-storage
-    src: Internal_Devices
-    dst: FileServers
-    protocol: tcp
-    ports: [9000]
-    action: accept
-    chain: forward
-    applies_to: [router2]
-
-  # ==========================================================================
-  # Vaults - bootstrap
-  # ==========================================================================
-
-  - name: bootstrap-clients-to-vaults
-    src: [Bastions, DMZ_Servers, Internal_Devices, Internal_DevOps]
-    dst: Vaults
-    protocol: tcp
-    ports: [8200]
-    action: accept
-    chain: forward
-    applies_to: [router2]
-
-  # ==========================================================================
-  # Ingress
-  # ==========================================================================
-
-  - name: ingress-self
-    src: Ingress
-    dst: Ingress
-    protocol: any
-    action: accept
-    chain: forward
-    applies_to: [router2]
-
-  - name: users-to-ingress
-    src: Internal_Users
-    dst: Ingress
-    protocol: any
-    action: accept
-    chain: forward
-    applies_to: [router2]
-
-  # ==========================================================================
-  # Devices / peripherals
-  # ==========================================================================
-
-  - name: users-and-guests-to-printers
-    src: [Internal_Users, Internal_Guest_Network]
-    dst: Printers
-    protocol: any
-    action: accept
-    chain: forward
-    applies_to: [router2]
-
-  - name: users-to-cncs
-    src: Internal_Users
-    dst: CNCs
-    protocol: any
-    action: accept
-    chain: forward
-    applies_to: [router2]
-
-  - name: users-to-leds
-    src: Internal_Users
-    dst: LEDs
-    protocol: any
-    action: accept
-    chain: forward
-    applies_to: [router2]
-
-  # ==========================================================================
-  # Sunshine
-  # ==========================================================================
-
   - name: sunshine-stream-tcp
+    description: Named TVs to named Sunshine hosts
     src: Sunshine_Targets
     dst: Sunshine_Sources
     protocol: tcp
@@ -496,8 +397,513 @@ rules:
     applies_to: [router2]
 
   # ==========================================================================
-  # Final drop
+  # Remote access: household tailnet users through tailgw1 (issue #146).
+  # Remote admins reach bastion1 inside the tunnel, so no router rule
+  # applies to them (fw_groups.yml Remote_Admins).
   # ==========================================================================
+
+  - name: remote-users-to-dns-tcp
+    src: Remote_Users
+    dst: Resolvers
+    protocol: tcp
+    ports: [53]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: remote-users-to-dns-udp
+    src: Remote_Users
+    dst: Resolvers
+    protocol: udp
+    ports: [53]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: remote-users-to-sso
+    src: Remote_Users
+    dst: SSO
+    protocol: tcp
+    ports: [443]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+    notes: Authelia requires two-factor from 100.64.0.0/10.
+
+  - name: remote-users-to-app-servers-web
+    src: Remote_Users
+    dst: App_Nodes
+    protocol: tcp
+    ports: [443]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  # ==========================================================================
+  # App-Servers
+  # ==========================================================================
+
+  - name: app-servers-to-sso
+    src: App_Servers
+    dst: SSO
+    protocol: tcp
+    ports: [443]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: app-servers-to-ca
+    description: cert-manager ACME
+    src: App_Servers
+    dst: CAs
+    protocol: tcp
+    ports: [443]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: app-servers-to-openbao
+    description: External Secrets Operator, Kubernetes auth
+    src: App_Nodes
+    dst: Secrets
+    protocol: tcp
+    ports: [8200]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: app-servers-to-dmz-media
+    description: The internal proxy and Seerr reach Jellyfin
+    src: App_Nodes
+    dst: DMZ_Nodes
+    protocol: tcp
+    ports: [443, 8096]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: Issue #111 dropped Plex's 32400.
+
+  - name: dmz-to-app-servers-ingress-exceptions
+    description: DMZ Traefik to the internal proxy's ingress-exception entrypoint (Seerr and Vaultwarden only)
+    src: DMZ_Nodes
+    dst: App_Nodes
+    protocol: tcp
+    ports: [8443]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: Issue #95. The only path the DMZ starts into an internal zone. The entrypoint carries only the exception routes, served with a step-ca certificate. Port chosen here; no ticket fixed it.
+
+  - name: argocd-to-dmz-cluster-api
+    description: One Argo CD in App-Servers manages both clusters
+    src: App_Nodes
+    dst: DMZ_Nodes
+    protocol: tcp
+    ports: [6443]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+
+  # ==========================================================================
+  # DevOps (named deployment targets)
+  # ==========================================================================
+
+  - name: devops-to-hypervisors
+    description: OpenTofu and Ansible against Proxmox
+    src: Runners
+    dst: Hypervisors
+    protocol: tcp
+    ports: [22, 8006]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+
+  - name: devops-to-switches
+    src: Runners
+    dst: Hardware_Management
+    protocol: tcp
+    ports: [22, 443]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: devops-to-hosts-ssh
+    description: Ansible over SSH with short step-ca certificates
+    src: Runners
+    dst: [Central_Servers, App_Servers, Security, DMZ, Fabrication]
+    protocol: tcp
+    ports: [22]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+
+  - name: devops-to-cluster-apis
+    description: K3s work, and the scheduled job that writes DMZ secrets
+    src: Runners
+    dst: [App_Nodes, DMZ_Nodes]
+    protocol: tcp
+    ports: [6443]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+
+  - name: devops-to-zot
+    description: Runners push custom DMZ images, such as the blog, to Zot
+    src: Runners
+    dst: DMZ_Nodes
+    protocol: tcp
+    ports: [5000]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: Issue #96. Zot's default port; TLS with a step-ca certificate. Nothing new in the DMZ-to-anywhere direction.
+
+  - name: devops-to-trust-base
+    description: Pipeline jobs log in to OpenBao with GitLab ID tokens; deploy role issues step-ca certificates
+    src: DevOps
+    dst: [Secrets, CAs, SSO]
+    protocol: tcp
+    ports: [443, 8200]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: gitlab-to-shared-databases
+    description: GitLab on shared Postgres 18 and Redis
+    src: GitLab
+    dst: FileServers
+    protocol: tcp
+    ports: [5432, 6379]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: devops-to-truenas-api
+    src: Runners
+    dst: FileServers
+    protocol: tcp
+    ports: [443]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  # ==========================================================================
+  # Bastion
+  # ==========================================================================
+
+  - name: bastion-to-managed-hosts
+    description: SSH and admin web interfaces on what it manages
+    src: Bastions
+    dst: [Central_Servers, App_Servers, DevOps, Security, DMZ, Fabrication, Devices]
+    protocol: tcp
+    ports: [22, 443]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+
+  - name: bastion-to-untrusted-devices
+    description: router3, ap2 and switch3 over the routed path; nothing back except replies
+    src: Bastions
+    dst: Untrusted_Devices
+    protocol: tcp
+    ports: [22, 80, 443]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+
+  - name: bastion-to-ca
+    src: Bastions
+    dst: CAs
+    protocol: tcp
+    ports: [443]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  # ==========================================================================
+  # Monitoring and logs
+  # ==========================================================================
+
+  - name: metrics-scrape
+    description: Prometheus pulls exporters; targets and further ports live in code
+    src: Metrics
+    dst: [Central_Servers, App_Servers, DevOps, DMZ, Fabrication, NVR, Hardware_Management, Server_Management, Power_Management]
+    protocol: tcp
+    ports: [9100]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+
+  - name: metrics-to-jellyfin-exporter
+    description: Prometheus pulls jellyfin_exporter beside Jellyfin
+    src: Metrics
+    dst: DMZ_Nodes
+    protocol: tcp
+    ports: [9594]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: Issue #111. An alert on jellyfin_up covers server down, so no blackbox probe.
+
+  - name: logs-to-security-tcp
+    description: Elastic Agent/Fleet, syslog and the CrowdSec LAPI; the DMZ is the one named exception
+    src: [Central_Servers, App_Servers, DevOps, DMZ_Nodes, Fabrication, NVR, Hardware_Management, Server_Management, Power_Management, Routers]
+    dst: Log_Collectors
+    protocol: tcp
+    ports: [514, 5055, 8080, 8220]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: Nothing else reaches Security.
+
+  - name: logs-to-security-udp
+    src: [Hardware_Management, Server_Management, Power_Management, Routers]
+    dst: Log_Collectors
+    protocol: udp
+    ports: [514]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+
+  # ==========================================================================
+  # Power and start order
+  # ==========================================================================
+
+  - name: nut-to-pve5-api
+    description: Token limited to starting and stopping VMs
+    src: NUT
+    dst: Hypervisor_pve5
+    protocol: tcp
+    ports: [8006]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: nut-clients
+    src: [Hypervisors, FileServers]
+    dst: NUT
+    protocol: tcp
+    ports: [3493]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+
+  # ==========================================================================
+  # file1 exceptions (backup and library)
+  # ==========================================================================
+
+  - name: proxy-to-home-assistant
+    description: The internal proxy fronts ha.mikewashere.lan
+    src: App_Nodes
+    dst: Home_Assistant
+    protocol: tcp
+    ports: [8123]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+    notes: Issue #98. No rule from Users into Smart Home; Home Assistant uses its own login with TOTP, since forward auth breaks the mobile app.
+
+  - name: proxy-to-nvr
+    description: The internal proxy fronts cameras.mikewashere.lan (Frigate's authenticated port)
+    src: App_Nodes
+    dst: NVR
+    protocol: tcp
+    ports: [8971]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+    notes: Issue #98; optional upgrade. Frigate sits behind Authelia. Live view is MSE over a websocket on 8971, so RTSP (8554) and WebRTC (8555) are never exposed.
+
+  - name: home-assistant-to-nvr
+    description: MQTT over TLS, and Frigate clips and snapshots
+    src: Home_Assistant
+    dst: NVR
+    protocol: tcp
+    ports: [8883, 8971]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+    notes: Issue #98; optional upgrade. Mosquitto runs on the NVR host, so Frigate's own MQTT connection never leaves the box.
+
+  - name: admin-ssh-to-nvr
+    description: Bastion and Ansible SSH to the NVR host
+    src: [Bastions, Runners]
+    dst: NVR
+    protocol: tcp
+    ports: [22]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: Issue #98; optional upgrade. SSH only, to the NVR host only; the cameras are never reachable.
+
+  - name: nvr-to-restic
+    description: Saved clips to file1's append-only restic REST server
+    src: NVR
+    dst: FileServers
+    protocol: tcp
+    ports: [8000]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+    notes: Issue #98; optional upgrade. Pushes /media/frigate/exports only, on file1's Central-Servers address (issue #107).
+
+  - name: dmz-to-library-and-backup
+    description: Read-only media library and append-only restic REST server
+    src: DMZ_Nodes
+    dst: FileServers
+    protocol: tcp
+    ports: [2049, 8000]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: Issue #107. NFSv4 library and downloads (issue #116) exports, read-only to k3s-dmz1 with all users squashed; the DMZ has its own REST-server credential under --private-repos, append-only.
+
+  - name: hypervisors-to-backup-share
+    description: vzdump to file1's NFS backup share
+    src: Hypervisors
+    dst: FileServers
+    protocol: tcp
+    ports: [2049]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: Issue #107. NFSv4; the vzdump export is read-write to the hypervisors' Server-Management addresses only.
+
+  # ==========================================================================
+  # Internet egress (after every internal accept)
+  # ==========================================================================
+
+  - name: drop-unlisted-private
+    description: Anything internal not accepted above stops here, so the egress rules below reach only the internet
+    src: any
+    dst: RFC1918_Private
+    protocol: any
+    action: drop
+    chain: forward
+    applies_to: [router1, router2]
+
+  - name: internet-any
+    src: [Users, Guest, Smart_Home]
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: out-interface-list=WAN on router1
+
+  - name: internet-web
+    src: [App_Servers, DevOps, DMZ]
+    protocol: tcp
+    ports: [80, 443]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: "out-interface-list=WAN on router1. Accepted risk: a compromised host can still send data out over web ports."
+
+  - name: dmz-to-cloudflare-tunnel-tcp
+    description: cloudflared's outbound connections to Cloudflare Tunnel
+    src: DMZ_Nodes
+    dst: Cloudflare_Tunnel
+    protocol: tcp
+    ports: [7844]
+    action: accept
+    chain: forward
+    applies_to: [router1]
+    notes: Issue #93. Port 443 for cloudflared's update checks is already in internet-web.
+
+  - name: dmz-to-cloudflare-tunnel-udp
+    description: cloudflared's outbound connections to Cloudflare Tunnel (QUIC)
+    src: DMZ_Nodes
+    dst: Cloudflare_Tunnel
+    protocol: udp
+    ports: [7844]
+    action: accept
+    chain: forward
+    applies_to: [router1]
+    notes: Issue #93.
+
+  - name: dmz-to-relay
+    description: k3s-dmz1's Tailscale client dials out to relay1, the only path for watch, downloads and game traffic
+    src: DMZ_Nodes
+    dst: Relay
+    protocol: udp
+    ports: [41641]
+    action: accept
+    chain: forward
+    applies_to: [router1]
+    notes: |
+      Issue #148; replaces the router1 port forwards internet-to-jellyfin,
+      internet-to-valheim and internet-to-v-rising, so the house has no
+      inbound port for public traffic. WireGuard to tailscaled's default
+      port on relay1; Headscale control and the DERP fallback ride TCP 443,
+      already in internet-web. Router1 sees only the encrypted link. The
+      relay's traffic is filtered by the Headscale ACL, then k3s-dmz1's
+      host firewall on tailscale0, then the DMZ default-deny NetworkPolicy.
+
+  - name: household-tailnet-control
+    description: Tailscale coordination and DERP relays for bastion1 and file1 on the household tailnet
+    src: Household_Tailnet
+    dst: Tailscale_Service
+    protocol: tcp
+    ports: [443]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: |
+      Issue #146. Replaces router1's WireGuard listener, so the house has
+      zero inbound ports. tailgw1 is in Users and needs no rule.
+
+  - name: household-tailnet-stun
+    description: STUN to Tailscale's DERP servers, so tailscaled can find its public address
+    src: Household_Tailnet
+    dst: Tailscale_Service
+    protocol: udp
+    ports: [3478]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+
+  - name: household-tailnet-direct
+    description: Direct WireGuard connections from tailscaled's port to any tailnet peer
+    src: Household_Tailnet
+    protocol: udp
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: |
+      src-port=41641, out-interface-list=WAN. Peers sit behind other NATs at
+      unknown addresses and ports, so the destination can't be narrowed;
+      without this rule connections fall back to DERP over TCP 443. The
+      Phase 1 check is a direct (not relayed) connection from an admin laptop
+      to bastion1 (tailscale status). Source: tailscale.com/kb/1082/firewall-ports.
+
+  - name: vpn-endpoint
+    description: gluetun's tunnel to the VPN provider
+    src: App_Nodes
+    protocol: udp
+    ports: [51820]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: Port depends on the provider; set when built.
+
+  - name: named-outbound
+    description: Debian mirrors, Backblaze B2 and each service's named domains
+    src: [Central_Servers, Security, NVR, Hardware_Management, Server_Management, Power_Management]
+    dst: Named_Outbound
+    protocol: tcp
+    ports: [80, 443]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+
+  - name: retronet-allowlist-web
+    src: RetroNet
+    protocol: tcp
+    ports: [80, 443]
+    action: accept
+    chain: forward
+    applies_to: [router1]
+    notes: Per-device connection and bandwidth limits; drops are logged. Game and service ports are added through Git.
 
   - name: forward-final-drop
     src: any
@@ -507,62 +913,38 @@ rules:
     applies_to: [router1, router2]
 
   # ==========================================================================
-  # Router3 (Cisco IOS)
+  # router3 backstop (RetroNet only)
   # ==========================================================================
 
-  - name: router3-mgmt-ssh
-    src: Hardware_Management
+  - name: router3-bastion-ssh
+    src: Bastions
+    protocol: tcp
+    ports: [22]
     action: accept
     chain: input
     applies_to: [router3]
-    notes: Renders as `ip access-list standard MGMT-SSH`, applied via access-class on vty 0-4 and 5-15.
+    notes: Arrives over the routed path through router1; may need a local account and older algorithms.
 
-  - name: router3-retronet-dns-dhcp
-    src: any
+  - name: router3-retronet-dhcp
+    src: RetroNet
     protocol: udp
-    ports: [53, 67, 123]
+    ports: [67]
     action: accept
     chain: input
     applies_to: [router3]
-    notes: Matches Router3's own GigabitEthernet1/0.21 gateway IP, resolved via vlans.yml gateway_host/gateway_interface for internal-retronet.
 
   - name: router3-retronet-icmp
-    src: any
+    src: RetroNet
     protocol: icmp
     action: accept
     chain: input
     applies_to: [router3]
 
-  - name: router3-retronet-deny-internal
-    src: Internal_RetroNet
+  - name: router3-retronet-deny-private
+    src: RetroNet
     dst: RFC1918_Private
     protocol: any
     action: drop
     chain: forward
     applies_to: [router3]
-    notes: Followed by an implicit permit-any (Cisco ACL deny-then-permit pattern) - RetroNet reaches the internet but not internal ranges.
-
-  - name: router3-smarthome-dns-dhcp
-    src: any
-    protocol: udp
-    ports: [53, 67, 123]
-    action: accept
-    chain: input
-    applies_to: [router3]
-    notes: Matches Router3's own GigabitEthernet1/0.19 gateway IP, resolved via vlans.yml gateway_host/gateway_interface for internal-smarthome.
-
-  - name: router3-smarthome-icmp
-    src: any
-    protocol: icmp
-    action: accept
-    chain: input
-    applies_to: [router3]
-
-  - name: router3-smarthome-deny-internal
-    src: Internal_Smart_Home
-    dst: RFC1918_Private
-    protocol: any
-    action: drop
-    chain: forward
-    applies_to: [router3]
-    notes: Same deny-then-permit pattern as router3-retronet-deny-internal, applied to the SmartHome extension subnet.
+    notes: Backstop only; router1 enforces the RetroNet allowlist.
