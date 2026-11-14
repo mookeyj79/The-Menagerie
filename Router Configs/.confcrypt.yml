@@ -72,7 +72,8 @@ filetypes:
 
   ios:
     comment: "!"
-    tripwire: '(?i)\b(secret|password|key-string|key-hash|community|md5|pre-shared-key|private-key)\b'
+    # `password-encryption` is excluded: `service password-encryption` holds no secret.
+    tripwire: '(?i)\b(secret|password(?!-encryption)|key-string|key-hash|community|md5|pre-shared-key|private-key)\b'
     rules:
       # enable secret 9 $9$...   /   enable password 7 ...
       - regex: '^\s*enable\s+(secret|password)\b'
