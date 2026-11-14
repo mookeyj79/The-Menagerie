@@ -18,11 +18,11 @@ The homelab is built in layers, each in its own top-level directory:
    - `Containers/` — one role per service (adguard, gitlab-ce, lego, postgresql, redis, step_ca, tailscale, traefik, unbound, vault); these prepare users/dirs/config and deploy the container, using `linux_manage_accounts` and `generic_check_docker`.
    - `Helpers/` — shared roles. `generic_build_vars` has a resolver pattern (`tasks/resolvers/*.yml` with `_resolve_map.yml`/`_resolve_object.yml` and Jinja macros) that builds role variables, pulling secrets from Vault.
 5. **`Disaster_Recovery/`** — `Build_Recovery.sh` assembles `DR_Dir/` (a self-contained copy of the Ansible roles + Terraform + `ansible.cfg`, `site.ini`, `stage_one.yml`, `stage_two.yml`, `host_vars/`) from `Templates/`; `Deploy_Recovery.sh` uses it to rebuild the lab from scratch. **`DR_Dir/` is a generated copy** of `Ansible/` and `Terraform/` — edit the originals (and `Templates/`), not `DR_Dir/`. The stage playbooks are partly commented out to select which roles run during a given recovery.
-6. **`Router Configs/`** — current RouterOS (`Router1/2_v3_4.rsc`) and Cisco IOS (`Router3_v3_4.ios`) configs, backups, and `OLD/` history. Versioned by filename suffix; new revisions get a new file rather than editing in place.
+6. **`Router Configs/`** — current RouterOS (`Router1/2_v3_5.rsc`) and Cisco IOS (`Router3_v3_5.ios`) configs (confcrypt-encrypted), backups, and `OLD/` history. Versioned by filename suffix; new revisions get a new file rather than editing in place.
 
 ## Secrets
 
-- Secrets live in HashiCorp Vault. `Homelab Scripts/` holds helpers (`Write-VaultSecret.ps1`, `Write_VaultSecret.sh`, `dump_vault.ps1`, `clone_homelab.ps1`), and `Secrets Layout.txt` documents the Vault path layout. `vault_backup.json` / `vault_secrets.json` in that directory are secret dumps — do not read, print, or commit them.
+- Secrets live in HashiCorp Vault. Never read, print or commit a Vault dump (`vault_backup.json`, `vault_secrets.json`); they are in the Ignored set.
 - Structured files (YAML, JSON, dotenv, ini) are encrypted with **SOPS**; `.sops.yaml` holds the creation rules and the age recipients (daily key and Backup key, see ADR 0002). Use `sops edit <file>` on a SOPS-governed file rather than writing plaintext into it.
 - Unstructured text (router configs, the Wi-Fi notes file) is protected with **confcrypt v2** (`Scripts/confcrypt/confcrypt.py`). Rules are whole-line: each dialect in `Router Configs/.confcrypt.yml` pairs a line regex with a fixed dummy line, and every matching line is replaced whole by its dummy, with the age-encrypted original in a metadata comment line directly above (`# confcrypt v2 <blob>`, `!` for Cisco). Recipients come from `.sops.yaml`. Usage:
   ```

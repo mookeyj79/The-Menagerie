@@ -56,6 +56,17 @@ def test_tripwire_hit_not_covered_by_a_rule_fails(ws):
     assert check(ws, clean).returncode == 0
 
 
+def test_ios_password_encryption_service_is_not_a_tripwire_hit(ws):
+    # `service password-encryption` turns on type-7 hashing; it holds no secret,
+    # and IOS lines cannot carry a confcrypt:ignore marker.
+    f = ws.write("svc.ios", b"service password-encryption\nno service password-encryption\n")
+    proc = check(ws, f)
+    assert proc.returncode == 0, proc.stderr
+    # an uncovered password line in the same dialect still trips
+    trip = ws.write("trip.ios", b"ip ftp password fakepw\n")
+    assert check(ws, trip).returncode == 1
+
+
 def test_ignore_marker_allowlists_a_reviewed_line(ws):
     f = ws.write(
         "ign.rsc",
