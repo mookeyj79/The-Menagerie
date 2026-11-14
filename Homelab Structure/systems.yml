@@ -1,0 +1,909 @@
+# ============================================================================
+# systems.yml - Single source of truth for every host and network device
+# ============================================================================
+# Schema:
+#   hostname        short identifier, unique across the fleet
+#   ansible_roles   list of Ansible roles applied ON TOP of the base image
+#   description     one-line human-readable purpose
+#   hardware        model of off-the-shelf hardware
+#   host            parent hypervisor hostname or group name (type: vm only)
+#   interfaces      list of { name, ip_address, vlan, description }
+#   notes           operational notes; block scalar `|` for multi-line
+#   os              OS identifier (e.g. Debian 13, routeros-7)
+#   resources       { arch, cpu, ram_gb, storage_gb, gpu }
+#   role            broad function (hypervisor, router, server, identity, ...)
+#   state           present | planned | decommissioned
+#   tags            optional free-form labels (e.g. ai_ml)
+#   type            physical | vm | lxc | network_device | appliance
+#
+# Field semantics:
+#
+#   ansible_roles:
+#     Order-significant. Place dependencies first (common before docker_host
+#     before service-specific). Excludes roles baked into the base image
+#     (e.g. vault_agent per ADR-014); only role-specific additions appear here.
+#
+#   host:
+#     Reference to a hostname or group name defined in the `groups` block.
+#     Only valid on type: vm entries. Omit for physical hosts.
+#
+#   state:
+#     present        - exists, managed (Ansible targets it)
+#     planned        - declared but not yet built (Tofu sees it, Ansible skips)
+#     decommissioned - retained for history, excluded from rendering
+# ============================================================================
+
+groups:
+  - name: pve-dmz
+    description: Proxmox cluster dedicated to DMZ workloads.
+    hosts: [pve4, pve5, pve6, pve7]
+  - name: pve-internal
+    description: Proxmox cluster dedicated to internal workloads.
+    hosts: [pve1, pve2, pve3]
+
+systems:
+
+  # ==========================================================================
+  # Network Devices
+  # ==========================================================================
+
+  - hostname: ap1
+    description: Internal WiFi access point
+    hardware: TpLink EAP610
+    interfaces:
+      - name: main
+        ip_address: 10.0.1.20
+        vlan: hardware-management
+    os: Omada 1.6.0
+    role: ap
+    state: present
+    type: network_device
+
+  - hostname: ap2
+    description: RetroNet WiFi access point
+    hardware: Linksys MR8300
+    interfaces:
+      - name: main
+        ip_address: 10.0.1.35
+        vlan: hardware-management
+    os: OpenWrt 25
+    role: ap
+    state: planned
+    type: network_device
+
+  - hostname: pdu1
+    description: Power Delivery unity
+    hardware: APC AP7901
+    interfaces:
+      - name: main
+        ip_address: 10.0.3.3
+        vlan: power-management
+    os: AOS 3.9.4
+    role: pdu
+    state: present
+    type: network_device
+
+  - hostname: switch1
+    description: DMZ Switch
+    hardware: Brocade ICX 6610
+    interfaces:
+      - name: management
+        ip_address: 10.0.1.2
+        vlan: hardware-management
+    os: FastIron OS 08.0.30u
+    role: switch
+    state: present
+    type: network_device
+
+  - hostname: switch2
+    description: Internal Switch
+    hardware: Brocade ICX 6450 x2 (stacked)
+    interfaces:
+      - name: management
+        ip_address: 10.0.1.18
+        vlan: hardware-management
+    os: FastIron OS 08.0.30u
+    role: switch
+    state: present
+    type: network_device
+
+  - hostname: switch3
+    description: RetroNet Switch
+    hardware: Zyxel GS-1900-24
+    interfaces:
+      - name: management
+        ip_address: 10.0.1.34
+        vlan: hardware-management
+    os: OpenWrt 25
+    role: switch
+    state: planned
+    type: network_device
+
+  - hostname: switch4
+    description: Netgear POE Switch
+    hardware: Netgear GS108PE
+    interfaces:
+      - name: management
+        ip_address: 10.0.1.19
+        vlan: hardware-management
+    os: Netgear FW 2.06.24
+    role: switch
+    state: present
+    type: network_device
+
+  - hostname: router1
+    description: Edge router; north/south internet, DMZ gateway
+    hardware: MikroTik Hex
+    interfaces:
+      - name: external_bridge
+        ip_address: 192.168.2.2
+      - name: VLAN101
+        ip_address: 10.0.1.1
+        vlan: hardware-management
+      - name: VLAN102
+        ip_address: 10.0.2.1
+        vlan: server-management
+      - name: VLAN301
+        ip_address: 192.168.3.1
+        vlan: architecture-1
+      - name: VLAN302
+        ip_address: 192.168.3.5
+        vlan: architecture-2
+      - name: VLAN4
+        ip_address: 192.168.4.1
+        vlan: dmz-servers
+    notes: OSPF router-id 192.168.254.1; originates default route.
+    os: RouterOS 7
+    role: router
+    state: present
+    type: network_device
+
+  - hostname: router2
+    description: MikroTik east/west internal distribution router
+    hardware: MikroTik Hex
+    interfaces:
+      - name: VLAN101
+        ip_address: 10.0.1.17
+        vlan: hardware-management
+      - name: VLAN102
+        ip_address: 10.0.2.17
+        vlan: server-management
+      - name: VLAN103
+        ip_address: 10.0.3.1
+        vlan: power-management
+      - name: VLAN301
+        ip_address: 192.168.3.2
+        vlan: architecture-1
+      - name: VLAN303
+        ip_address: 192.168.3.9
+        vlan: architecture-3
+      - name: VLAN16
+        ip_address: 192.168.16.1
+        vlan: internal-servers
+      - name: VLAN17
+        ip_address: 192.168.17.1
+        vlan: internal-users
+      - name: VLAN18
+        ip_address: 192.168.18.1
+        vlan: internal-guests
+      - name: VLAN19
+        ip_address: 192.168.19.1
+        vlan: internal-smarthome
+      - name: VLAN20
+        ip_address: 192.168.20.1
+        vlan: internal-devices
+      - name: VLAN22
+        ip_address: 192.168.22.1
+        vlan: internal-surveillance
+      - name: VLAN23
+        ip_address: 192.168.23.1
+        vlan: internal-devops
+    notes: OSPF router-id 192.168.254.2.
+    os: RouterOS 7
+    role: router
+    state: present
+    type: network_device
+
+  - hostname: router3
+    description: Cisco 3825 - dialup/PPP handler, POTS bridge, RetroNet gateway
+    hardware: Cisco 3825
+    interfaces:
+      - name: Loopback0
+        ip_address: 192.168.254.3
+      - name: FastEthernet2/0.101
+        ip_address: 10.0.1.33
+        vlan: hardware-management
+        description: Management
+      - name: GigabitEthernet0/0.302
+        ip_address: 192.168.3.6
+        vlan: architecture-2
+      - name: GigabitEthernet0/1.303
+        ip_address: 192.168.3.10
+        vlan: architecture-3
+      - name: GigabitEthernet1/0.19
+        ip_address: 192.168.19.65
+        vlan: internal-smarthome
+        description: Internal - Smart Home
+      - name: GigabitEthernet1/0.21
+        ip_address: 192.168.21.1
+        vlan: internal-retronet
+        description: Internal - RetroNet
+    os: Cisco IOS 15.1(4)m12a
+    role: router
+    state: present
+    type: network_device
+
+  # ==========================================================================
+  # Firewalls
+  # ==========================================================================
+
+  - hostname: fw1
+    description: Primary firewall; north/south traffic filtering
+    hardware: Protectli Vault VP2440e
+    interfaces:
+      - name: management
+        ip_address: 10.0.1.3
+    os: OPNsense 26
+    role: firewall
+    state: planned
+    type: network_device
+
+  - hostname: fw2
+    description: DMZ Firewall
+    hardware: Protectli Vault VP2440e
+    interfaces:
+      - name: management
+        ip_address: 10.0.1.4
+    os: OPNsense 26
+    role: firewall
+    state: planned
+    type: network_device
+
+  - hostname: fw3
+    description: Internal Network Firewall
+    hardware: Protectli Vault VP2440e
+    interfaces:
+      - name: management
+        ip_address: 10.0.1.21
+    os: OPNsense 26
+    role: firewall
+    state: planned
+    type: network_device
+
+  - hostname: fw4
+    description: Retronet Firewall
+    hardware: Protectli Vault VP2440e
+    interfaces:
+      - name: management
+        ip_address: 10.0.1.36
+    os: OPNsense 26
+    role: firewall
+    state: planned
+    type: network_device
+
+  # ==========================================================================
+  # Physical Servers
+  # ==========================================================================
+
+  - hostname: bastion1
+    ansible_roles: [common_arm, bastion]
+    description: Identity-aware SSH proxy for admin access
+    hardware: Raspberry Pi 5
+    interfaces:
+      - name: eth0.16
+        ip_address: 192.168.16.2
+        vlan: internal-servers
+      - name: eth0.101
+        ip_address: 10.0.1.22
+        vlan: hardware-management
+      - name: eth0.102
+        ip_address: 10.0.2.23
+        vlan: server-management
+    notes: |
+      Primary admin access point; no other hosts accept direct
+      SSH. Runs Tailscale client for remote access.
+    os: Raspbian Lite
+    resources:
+      arch: arm64
+      cpu: 4
+      ram_gb: 16
+      storage_gb: 128
+    role: server
+    state: planned
+    type: physical
+
+  - hostname: file1
+    description: TrueNAS file server; SMB shares, Syncthing, AD-integrated home directories
+    interfaces:
+      - name: eth0.16
+        ip_address: 192.168.16.6
+        vlan: internal-servers
+        description: Shares interface
+      - name: eth0.102
+        ip_address: 10.0.2.21
+        vlan: server-management
+        description: TrueNAS UI and SSH
+      - name: idrac
+        ip_address: 10.0.2.22
+        vlan: server-management
+    os: TrueNAS Scale 25
+    resources:
+      arch: x86_64
+      cpu: 16
+      ram_gb: 64
+      storage_gb: 256
+    role: server
+    state: present
+    type: physical
+
+  - hostname: ml1
+    ansible_roles: [common, docker_host, nvidia_runtime]
+    description: AI/ML GPU server
+    interfaces:
+      - name: eth0.16
+        ip_address: 192.168.16.8
+        vlan: internal-servers
+    os: Debian 13
+    resources:
+      arch: x86_64
+      cpu: TBD
+      gpu: 4x NVIDIA GTX 1660
+      ram_gb: TBD
+      storage_gb: TBD
+    role: server
+    state: present
+    type: physical
+
+  - hostname: ntp1
+    ansible_roles: [common_arm, ntp_server]
+    description: GPS-disciplined NTP server
+    hardware: Raspberry Pi 5
+    interfaces:
+      - name: eth0.4
+        ip_address: 192.168.4.4
+        vlan: dmz-servers
+    os: Raspbian Lite
+    resources:
+      arch: arm64
+      cpu: 4
+      ram_gb: 16
+      storage_gb: 128
+    role: server
+    state: planned
+    type: physical
+
+  - hostname: nut1
+    ansible_roles: [common_arm, nut_server]
+    description: Network UPS Tools server
+    hardware: Raspberry Pi 3
+    interfaces:
+      - name: eth0.16
+        ip_address: 192.168.16.9
+        vlan: internal-servers
+      - name: eth0.103
+        ip_address: 10.0.3.2
+        vlan: power-management
+    notes: |
+      UPS coordinator. Manages staged shutdowns for the fleet via NUT clients
+      on every host and manages PDU.
+    os: Raspbian Lite
+    resources:
+      arch: arm64
+      cpu: 4
+      ram_gb: 1
+      storage_gb: 128
+    role: infrastructure
+    state: planned
+    type: physical
+
+  # ==========================================================================
+  # Hypervisors
+  # ==========================================================================
+
+  - hostname: pve1
+    ansible_roles: [common, proxmox_host]
+    description: Internal Proxmox hypervisor
+    interfaces:
+      - name: eth0.102
+        ip_address: 10.0.2.18
+        vlan: server-management
+    os: Proxmox VE 9
+    resources:
+      arch: x86_64
+      cpu: 24
+      ram_gb: 128
+      storage_gb: 2048
+    role: hypervisor
+    state: present
+    type: physical
+
+  - hostname: pve2
+    ansible_roles: [common, proxmox_host]
+    description: Internal Proxmox hypervisor
+    hardware: Lenovo ThinkCentre M920Q
+    interfaces:
+      - name: eth0.102
+        ip_address: 10.0.2.19
+        vlan: server-management
+    os: Proxmox VE 9
+    resources:
+      arch: x86_64
+      cpu: 8
+      ram_gb: 64
+      storage_gb: 1024
+    role: hypervisor
+    state: planned
+    type: physical
+
+  - hostname: pve3
+    ansible_roles: [common, proxmox_host]
+    description: Internal Proxmox hypervisor
+    hardware: Lenovo ThinkCentre M920Q
+    interfaces:
+      - name: eth0.102
+        ip_address: 10.0.2.20
+        vlan: server-management
+    os: Proxmox VE 9
+    resources:
+      arch: x86_64
+      cpu: 8
+      ram_gb: 64
+      storage_gb: 1024
+    role: hypervisor
+    state: planned
+    type: physical
+
+  - hostname: pve4
+    ansible_roles: [common, proxmox_host]
+    description: DMZ Proxmox hypervisor
+    hardware: Lenovo ThinkCentre M720Q
+    interfaces:
+      - name: eth0.102
+        ip_address: 10.0.2.2
+        vlan: server-management
+    os: Proxmox VE 9
+    resources:
+      arch: x86_64
+      cpu: 6
+      ram_gb: 32
+      storage_gb: 512
+    role: hypervisor
+    state: present
+    type: physical
+
+  - hostname: pve5
+    ansible_roles: [common, proxmox_host]
+    description: DMZ Proxmox hypervisor
+    hardware: Lenovo ThinkCentre M720Q
+    interfaces:
+      - name: eth0.102
+        ip_address: 10.0.2.3
+        vlan: server-management
+    os: Proxmox VE 9
+    resources:
+      arch: x86_64
+      cpu: 6
+      ram_gb: 32
+      storage_gb: 512
+    role: hypervisor
+    state: planned
+    type: physical
+
+  - hostname: pve6
+    ansible_roles: [common, proxmox_host]
+    description: DMZ Proxmox hypervisor
+    hardware: Lenovo ThinkCentre M720Q
+    interfaces:
+      - name: eth0.102
+        ip_address: 10.0.2.4
+        vlan: server-management
+    os: Proxmox VE 9
+    resources:
+      arch: x86_64
+      cpu: 6
+      ram_gb: 32
+      storage_gb: 512
+    role: hypervisor
+    state: planned
+    type: physical
+
+  - hostname: pve7
+    ansible_roles: [common, proxmox_host]
+    description: DMZ Proxmox hypervisor
+    hardware: Lenovo ThinkCentre M720Q
+    interfaces:
+      - name: eth0.102
+        ip_address: 10.0.2.5
+        vlan: server-management
+    os: Proxmox VE 9
+    resources:
+      arch: x86_64
+      cpu: 6
+      ram_gb: 32
+      storage_gb: 512
+    role: hypervisor
+    state: planned
+    type: physical
+
+  # ==========================================================================
+  # DMZ
+  # ==========================================================================
+
+  - hostname: game1
+    ansible_roles: [common, docker_host]
+    description: Game server host
+    host: pve-dmz
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.4.2
+        vlan: dmz-servers
+    os: Debian 13
+    resources:
+      arch: x86_64
+      cpu: 2
+      ram_gb: 4
+      storage_gb: 24
+    role: server
+    state: planned
+    type: vm
+
+  - hostname: ingress1
+    ansible_roles: [common, docker_host]
+    description: Primary entrance point for external traffic
+    host: pve-dmz
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.4.3
+        vlan: dmz-servers
+    os: Debian 13
+    resources:
+      arch: x86_64
+      cpu: 2
+      ram_gb: 4
+      storage_gb: 16
+    role: server
+    state: planned
+    type: vm
+
+  - hostname: seeder1
+    ansible_roles: [common, docker_host, adguard, traefik]
+    description: Primary host of external services
+    host: pve-dmz
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.4.5
+        vlan: dmz-servers
+    os: Debian 13
+    resources:
+      arch: x86_64
+      cpu: 2
+      ram_gb: 8
+      storage_gb: 64
+    role: server
+    state: planned
+    type: vm
+
+  - hostname: tunnel1
+    ansible_roles: [common, tailscale_server]
+    description: Remote access ingress (Tailscale/Headscale server)
+    host: pve-dmz
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.4.6
+        vlan: dmz-servers
+    os: Debian 13
+    resources:
+      arch: x86_64
+      cpu: 1
+      ram_gb: 2
+      storage_gb: 16
+    role: server
+    state: planned
+    type: vm
+
+  # ==========================================================================
+  # Internal - Servers
+  # ==========================================================================
+
+  - hostname: ca1
+    ansible_roles: [common, stepca]
+    description: step-ca certificate authority (X.509 + SSH); ACME, JWK, OIDC provisioners
+    host: pve-internal
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.16.3
+        vlan: internal-servers
+    notes: Internal CA. Signs everything. (OIDC, SSH, ACME, JWK)
+    os: Debian 13
+    resources:
+      arch: x86_64
+      cpu: 1
+      ram_gb: 4
+      storage_gb: 16
+    role: server
+    state: planned
+    type: vm
+
+  - hostname: dc1
+    ansible_roles: [common, samba_ad_dc]
+    description: Samba Active Directory Domain Controller
+    host: pve-internal
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.16.4
+        vlan: internal-servers
+    notes: |
+      Primary identity source for Linux (sssd/realmd) + Windows 11 Pro (domain
+      join). Authentik above this for web SSO.
+    os: Debian 13
+    resources:
+      arch: x86_64
+      cpu: 2
+      ram_gb: 8
+      storage_gb: 128
+    role: server
+    state: planned
+    type: vm
+
+  - hostname: feeder1
+    ansible_roles: [common, docker_host]
+    description: Internal downloader and content services
+    host: pve-internal
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.16.5
+        vlan: internal-servers
+    os: Debian 13
+    resources:
+      arch: x86_64
+      cpu: 4
+      ram_gb: 24
+      storage_gb: 512
+    role: server
+    state: planned
+    type: vm
+
+  - hostname: ingress2
+    ansible_roles: [common, docker_host, authentik]
+    description: Authentik identity provider (OIDC/SAML, LDAP-federated to dc1)
+    host: pve-internal
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.16.7
+        vlan: internal-servers
+    notes: |
+      User identity plane and primary ingress into the internal network.
+      LDAP-federated to dc1 for OS-level identity. Step-ca's OIDC
+      provisioner federates here for user SSH cert issuance.
+    os: Debian 13
+    resources:
+      arch: x86_64
+      cpu: 2
+      ram_gb: 4
+      storage_gb: 32
+    role: identity
+    state: planned
+    type: vm
+
+  - hostname: secmon1
+    ansible_roles: [common, docker_host]
+    description: Security monitoring (log aggregation, IDS, dashboards)
+    host: pve-internal
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.16.10
+        vlan: internal-servers
+    notes: |
+      Specific stack TBD: Wazuh, Security Onion, or custom
+      Grafana+Loki+Prometheus. Receives NetFlow from routers,
+      audit logs from bastion1, and metrics from the fleet.
+    os: Debian 13
+    resources:
+      arch: x86_64
+      cpu: 2
+      ram_gb: 24
+      storage_gb: 512
+    role: server
+    state: planned
+    type: vm
+
+  - hostname: transcode1
+    ansible_roles: [common, docker_host]
+    description: Video transcoding server (Plex, Jellyfin, Emulation)
+    host: pve-internal
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.16.11
+        vlan: internal-servers
+    os: Debian 13
+    resources:
+      arch: x86_64
+      cpu: 3
+      ram_gb: 24
+      storage_gb: 256
+    role: server
+    state: planned
+    type: vm
+
+  - hostname: vault1
+    ansible_roles: [common, vault]
+    description: HashiCorp Vault (secrets only; PKI deliberately not enabled)
+    host: pve-internal
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.16.12
+        vlan: internal-servers
+    os: Debian 13
+    resources:
+      arch: x86_64
+      cpu: 2
+      ram_gb: 4
+      storage_gb: 32
+    role: server
+    state: planned
+    type: vm
+
+  # ==========================================================================
+  # Internal - Devices
+  # ==========================================================================
+
+  - hostname: printer1
+    description: Color inkjet printer
+    hardware: Epson EcoTank ET-2800
+    interfaces:
+      - name: main
+        ip_address: 192.168.20.2
+        vlan: internal-devices
+    role: printer
+    state: present
+    type: physical
+
+  - hostname: printer2
+    description: Black and white laser printer
+    hardware: HP LaserJet Pro M401n
+    interfaces:
+      - name: main
+        ip_address: 192.168.20.3
+        vlan: internal-devices
+    role: printer
+    state: present
+    type: physical
+
+  - hostname: printfil1
+    ansible_roles: [common, klipper]
+    description: Klipper 3D printer controller
+    hardware: Raspberry Pi 5
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.20.4
+        vlan: internal-devices
+    os: Raspbian Lite
+    resources:
+      arch: arm64
+      cpu: 4
+      ram_gb: 16
+      storage_gb: 128
+    role: cnc
+    state: present
+    type: physical
+
+  - hostname: printfil2
+    ansible_roles: [common, klipper]
+    description: Klipper 3D printer controller
+    hardware: Raspberry Pi 5
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.20.5
+        vlan: internal-devices
+    os: Raspbian Lite
+    resources:
+      arch: arm64
+      cpu: 4
+      ram_gb: 16
+      storage_gb: 128
+    role: cnc
+    state: planned
+    type: physical
+
+  - hostname: printres1
+    description: Wifi Enabled Resin 3D Printer
+    hardware: AnyCubic Mono M5
+    interfaces:
+      - name: main
+        ip_address: 192.168.20.6
+        vlan: internal-devices
+    role: cnc
+    state: present
+    type: physical
+
+  - hostname: printres2
+    description: Wifi Enabled Resin 3D Printer
+    hardware: AnyCubic Photon
+    interfaces:
+      - name: main
+        ip_address: 192.168.20.7
+        vlan: internal-devices
+    role: cnc
+    state: planned
+    type: physical
+
+  - hostname: laser1
+    description: Laser cutter/engraver
+    hardware: TBD
+    interfaces:
+      - name: main
+        ip_address: 192.168.20.8
+        vlan: internal-devices
+    role: cnc
+    state: planned
+    type: physical
+
+  - hostname: cnc1
+    description: CNC mill
+    hardware: TBD
+    interfaces:
+      - name: main
+        ip_address: 192.168.20.9
+        vlan: internal-devices
+    role: cnc
+    state: planned
+    type: physical
+
+  - hostname: cutter1
+    description: Vinyl cutter
+    hardware: TBD
+    interfaces:
+      - name: main
+        ip_address: 192.168.20.10
+        vlan: internal-devices
+    role: cnc
+    state: planned
+    type: physical
+
+  # ==========================================================================
+  # Internal - DevOps
+  # ==========================================================================
+
+  - hostname: devops1
+    ansible_roles: [common, docker_host, gitlab, kestra]
+    description: GitLab CE platform host
+    host: pve-internal
+    interfaces:
+      - name: eth0
+        ip_address: 192.168.23.2
+        vlan: internal-devops
+    os: Debian 13
+    resources:
+      arch: x86_64
+      cpu: 4
+      ram_gb: 16
+      storage_gb: 128
+    role: server
+    state: planned
+    type: vm
+
+  # ==========================================================================
+  # Special
+  # ==========================================================================
+
+  - hostname: backup1
+    ansible_roles: [common, truenas, tailscale_client]
+    description: Offsite backup target
+    hardware: QNAP TS-364
+    interfaces:
+      - name: eth0
+        ip_address: TBD
+        vlan: internal-servers
+    notes: |
+      Physically offsite; Tailscale-connected into internal-servers VLAN.
+      Acts as Tier-2 backup. True Tier-3 (encrypted cloud bucket, second-site)
+      planned for a later phase.
+    os: TrueNAS Scale 25
+    resources:
+      arch: x86_64
+      cpu: 4
+      ram_gb: 8
+      storage_gb: 128
+    role: server
+    state: planned
+    type: physical

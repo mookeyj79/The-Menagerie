@@ -1,0 +1,344 @@
+version 15.1
+service timestamps debug datetime msec
+service timestamps log datetime msec
+service password-encryption
+!
+hostname Router3
+!
+! Config version: 3.5 (was 3.3)
+! Changes from 3.4:
+!  - Rotated Creds
+!
+boot-start-marker
+boot-end-marker
+!
+shell processing full
+!
+! confcrypt v2 YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0-IFgyNTUxOSA5R2RIWERkU2gwSnUzWGtIWVprR1NVbmhpYVM1MHlEODRHMHJieTlTdVR3CmlyQ200cUVIQXZnamJONEQzdUFpRGRLSVluZ01xR1JLeGNJT3h1ZCtIc2cKLT4gWDI1NTE5IDdXK0h1VUZEU3RxemM4anJOcFVCWXlwZEdhQUJtRG1UcWkrYzJUWkdyUTAKUDIwNkV5TTRuU3ptU2E0ZFphb010WWs3L3F1eHFHRWtuOEFVcDNTUStJdwotPiApLWdyZWFzZSBJaXR8VXsgcCA2JX0mIDluPSpNYgorZHFMWkpqZkFDSjZGVWh6bUw3Ui9IMGlVTmViUjFDaVVlTk5MTG9oRFlMVHMzb083NHJuSDlEaU5NbUI3cXp1CnVWdDlVTlBYCi0tLSB1Q2ZyR0pJVTVxa25mT0pKdUdaM2ljaGEzZUJReEJxQ3RENjY2cHRvRk9BCl-lA4LP2Y3juCywVcg1X9xhbHRjKONy-czS84EeH5sxI6ow0v_ze5LWJOwhQk8f_-Viczq7UGbTZu0Os4njoxsAP1l5HJ4ZsWfLX7rdZYBqqw9naH6op5cY9j3zgyUt5V9x0gLcjY5UWVrlWQo
+enable secret 9 REDACTED
+!
+no aaa new-model
+!
+no network-clock-participate slot 2
+!
+dot11 syslog
+no ip source-route
+!
+ip cef
+!
+!
+no ip dhcp use vrf connected
+ip dhcp excluded-address 192.168.19.65 192.168.19.69
+ip dhcp excluded-address 192.168.21.1 192.168.21.49
+!
+ip dhcp pool RETRONET-DHCP
+  network 192.168.21.0 255.255.255.192
+  default-router 192.168.21.1
+  dns-server 192.168.21.1
+  lease 0 6
+!
+ip dhcp pool SMARTHOME-DHCP
+  network 192.168.19.64 255.255.255.240
+  default-router 192.168.19.65
+  dns-server 192.168.19.65
+  lease 0 6
+!
+!
+ip domain name mikewashere.lan
+ip name-server 192.168.3.5
+ip name-server 192.168.3.9
+ip name-server 1.1.1.1
+ip name-server 9.9.9.9
+ip inspect name RETRONET-OUT tcp
+ip inspect name RETRONET-OUT udp
+ip inspect name RETRONET-OUT icmp
+ip inspect name SMARTHOME-OUT tcp
+ip inspect name SMARTHOME-OUT udp
+ip inspect name SMARTHOME-OUT icmp
+no ipv6 cef
+!
+multilink bundle-name authenticated
+!
+!
+!
+!
+!
+voice-card 0
+!
+!
+!
+!
+!
+!
+!
+crypto pki token default removal timeout 0
+!
+!
+!
+!
+license udi pid CISCO3825 sn FTX1339AJQU
+! confcrypt v2 YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0-IFgyNTUxOSBQVkVZQStPYWFmZ3pXdUcvb2VVTzNmS2thTml1eVR5Y3dsVjI3VWZ3TEMwCmF5dzdETWJGYnZZSEVNY0RZVVVrWjR5Mkx5MmsxSUlmOG1qOEZqUHNRdHcKLT4gWDI1NTE5IEgyMjRSU3oySGlydE5PZmZiOE0vdWlLSlRkT2J2a2JWUW91aEhZNmJsbkkKRUxsTmhLdE5sOVpucjhTVndOSDRpeGJwV0wvTkRCSGgwWWxhbFh1QlQ5QQotPiBiMFFzTS1ncmVhc2UKcGxyR1dMaHFXcXRWT3ZFeFJEUndHOTdLVUFKNE5ZTllNTUswMXFWcHMzWDJ0VllCOWZnTG1hRVcyRno2NXNDcgo0UlZ2OXkvYWhBWmRybDhnUWIxcm5Mc2dsa2E1QXQyVFhtZTNYbERhbWdGcUQ2U2RQdXkzUGZUODZBCi0tLSB6UHU3aE1lU1JiNm9oN2RUWlZzaU83d0E1MUFQdEo0dXlvNkpybWdkV3IwCsHRhkzIyiOD0u1KgO7m6uoge6O0gd6mobFFHZJvDPNRFEM-IvQn_96CUe5ROKLHCJT1vfY2Re0ip9xNGwiFkbonTLQ14PpoaMwMHctuym0JV2BpTpyvKEQvb75emB3UrnsFYkpt1REGunjMWDjY76ac2cFJoo1Ny239Hubs6FOyC5o
+username REDACTED secret 9 REDACTED
+! confcrypt v2 YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0-IFgyNTUxOSArOSt6Z0dhMTYxbVkzWllHQWd1MDZ6R3BQOG1HdDNLZDFoVDVhaWlZbTFvCm5hNEx6WERmcVp2bXhsS2QzS3QwajUxYlBXTFNGWExZam9ITlJlZEQzWHcKLT4gWDI1NTE5IEFZYmpWVE9HVFlySGY0eGwrc283ckxlZzMwVFdQbWU4RURkMG5SRURlbGMKc0thNEJPWmIvL0ViOTNoY1JRbDZXTE5LQWRVK1lueWhmWEJ5S0ViYVZuUQotPiBAMjE2LWdyZWFzZQoxNVEwRDY1TlFuUnNDaCtGb0lZM1hmWjZNbVlvRVdNdjRydUtSc1FHNzJoL0xvZ0FQVm1kREZVMkN1SmlrVjJRCjJRU3E2dwotLS0gNHVWZzNCOGhvVEQrV0xkeTdXdkJ5V1k5c1VRUEpFRTdzek1MN29qaWFRTQrXAIUzz5MeoRc-nuIl5S8D1GSB2k6Xv-NoK2CZUMQaU2IBOmV7IQax09IZHLhn7qe833mY5iSf2ZyVZ_r3QftaYMFYU06R2s10NK9ctmnwtR3vLW7_hHi4LWUs2707YcsKbORXcexeJdWqyR5LpKSfxHkJS0GYt7w
+username REDACTED secret 9 REDACTED
+!
+redundancy
+!
+!
+ip ssh time-out 60
+ip ssh authentication-retries 2
+ip ssh version 2
+ip ssh pubkey-chain
+  username wonka
+! confcrypt v2 YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0-IFgyNTUxOSB1bHVaRGNVczhJMG5xWG8vU0U0ekRSZ1gyU0N2bHRjUkd0ZEYwQlg5R21BCnNYUjhydGtVRDdrWXIyL0l3Tm1weGJnVU14V1U1UDVVeDdLQ1FHZUhkYkUKLT4gWDI1NTE5IDkzaUkrTVI4K1B1RFUxbkprMXpXcnB1OG05OTRWUlFNVVNJODhRRHA5VkEKK3NjWGw0YWM2bU9ZVkdiTEdSZko2aWZuSGNZTFl4c2NDdXVOUGJvQnBQNAotPiBsaGs6eD4sLWdyZWFzZSBkXWo7TCBWYHl1biN2ayBDaC9hCjFBYmtFUE9hU2w1YkxZRVpyUjBYNEVxMkRrazFoczZnazF0ZDJhM24zUE94SzhWLy9kUFFkb0NqU3RkcQotLS0gT0txQW9tQ1hzTzZUcDcxZElZSUR3cVE0SU1CV21PVlpqMW8xeW9JSDlRZwrwPMcTbR3GzbphvxgpG5ipTsGivCNj5y9hW0SN8zho6PTN7D29ju_CNQJtLBBQc-LEq0-ewFVgiiYCosPAnoTOGDwd9brSjEgYidYpOIXRChOhR4Cu
+key-hash ssh-rsa REDACTED
+  quit
+!
+!
+!
+!
+!
+!
+!
+!
+interface Loopback0
+  ip address 192.168.254.3 255.255.255.255
+!
+interface GigabitEthernet0/0
+  no ip address
+  duplex auto
+  speed auto
+  media-type rj45
+!
+interface GigabitEthernet0/0.302
+  encapsulation dot1Q 302
+  ip address 192.168.3.6 255.255.255.252
+  ip ospf authentication message-digest
+! confcrypt v2 YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0-IFgyNTUxOSB5ZDVSR2FaL3FuZXVaR0ZBbGFkNU5ucHBLZGdvRk9idmpKdXNzeitnZXhFCkNUYTdWS0RzNSszNlYyaW8wbHh2ZWJWd1BLYmVwUDNTZFl5YzRVSElzTFkKLT4gWDI1NTE5IHVSM3pTbUZTdFVtdS94anlFM3lMUEdqVy94dFVPOVBVc1RZK1didzIyejgKTUZmbnhZQlpybUZIa09OSEVMQ3RLRGJoeE5RemdSTkt1engzVFpLOE1mUQotPiBTaCktZ3JlYXNlIEUgQyAnUCBJXH14VTpRJApROVVUNkE1ZHB4d0tQVmxTdnV6aGxOaUVYWjBMdXhXVHZ6Z2lLdVZidU81SGxDSHI5aTJBUmVyUXhKemszOWxUCkhNWlZONWk0YjA1RUVYWEJBZkpCMjQrSXdkcmlVSjJFMEZZOGxJN040ZHU3RmJsSUZpeFAvemszYlEKLS0tIHZCS1hNdEJLVU5EODllT3NMN2tRazRneU85dEREUDR3SUJzUDlrdllKYk0KFY8rF8bcbVWanJn8stw0RcFCl3Z49jWPhE2Z29nVL1VxmBfGWIt6a66jouxTwN7PeLb9Rq51fQfQF2ZnfZgomC6wNRnpPkcHRo6IxLFOnmXeNzgtALFtZOJoipPKe-B2wDRhlFuY-w
+ip ospf message-digest-key 1 md5 7 REDACTED
+  ip ospf 1 area 0
+!
+interface GigabitEthernet0/1
+  no ip address
+  duplex auto
+  speed auto
+  media-type rj45
+!
+interface GigabitEthernet0/1.303
+  encapsulation dot1Q 303
+  ip address 192.168.3.10 255.255.255.252
+  ip ospf authentication message-digest
+! confcrypt v2 YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0-IFgyNTUxOSAwQVBULzZhNExqd295QXI5U0pzU2Y4aE9MekFwRW9Bb3owQ1FPZVZwR2s4Ck5WQnVnd3hWZExhWDV4TjVYMllnRUk1eFhCS3NIdGdoRmdZZWhLcjE4VU0KLT4gWDI1NTE5IENWZnB4Ynd0Qk9xSkRrVzAzakxJd1k0TGtITUdnSk9BZkJERjZQTjNSR2sKbEVyT0J1dk0wblFIaWViR3Uwa21LVUhmRWJlRmNiOTZYSlZmK0ZSQm1RSQotPiAobXMtZ3JlYXNlIDhJCkZrd1d6UjdwVDdLd2pNNGhyQU5PVXdRTGphd3NvS3pOTGV0S0hNZnRjUGxLY2I0Ci0tLSBqemYxcXRVcDhwRXlhcWVqemZNZHpCTVpMYTQxLzFkcGwxNE15eFEyb1VFCvN3JPmvhKSFDdLQTv6ze0y1dN15QjifanaPfaBh5PI7cNr9MhOdBD6RReznQdGKfK4dmGHWhjTjk7dCI1Q9MnC26XabcvWEpmjSXdyfL9VKYPSZLPzZ85h4ToEQt0c9EJUU5F_EKiA
+ip ospf message-digest-key 1 md5 7 REDACTED
+  ip ospf 1 area 0
+!
+interface GigabitEthernet1/0
+  no ip address
+!
+interface GigabitEthernet1/0.19
+  description Internal - Smart Home
+  encapsulation dot1Q 19
+  ip address 192.168.19.65 255.255.255.240
+  ip access-group SMARTHOME-IN in
+  ip inspect SMARTHOME-OUT out
+!
+interface GigabitEthernet1/0.21
+  description Internal - RetroNet
+  encapsulation dot1Q 21
+  ip address 192.168.21.1 255.255.255.192
+  ip access-group RETRONET-IN in
+  ip inspect RETRONET-OUT out
+!
+interface GigabitEthernet1/0.101
+  description Hardware Management
+  encapsulation dot1Q 101
+  ip address 10.0.1.33 255.255.255.240
+!
+interface FastEthernet2/0
+  no ip address
+  shutdown
+  duplex auto
+  speed auto
+!
+interface FastEthernet2/1
+  no ip address
+  shutdown
+  duplex auto
+  speed auto
+!
+interface Async0/2/0
+  ip unnumbered Loopback0
+  ip virtual-reassembly in
+  encapsulation ppp
+  ip tcp header-compression
+  dialer in-band
+  dialer idle-timeout 3600
+  dialer-group 1
+  peer default ip address pool RETRONET-LOCAL
+  async mode interactive
+  no keepalive
+  ppp authentication pap chap
+!
+router ospf 1
+  router-id 192.168.254.3
+  passive-interface Loopback0
+  passive-interface GigabitEthernet1/0.101
+  passive-interface GigabitEthernet1/0.19
+  passive-interface GigabitEthernet1/0.21
+  network 10.0.1.32 0.0.0.15 area 0
+  network 192.168.3.4 0.0.0.3 area 0
+  network 192.168.3.8 0.0.0.3 area 0
+  network 192.168.19.64 0.0.0.15 area 0
+  network 192.168.21.0 0.0.0.63 area 0
+  network 192.168.254.3 0.0.0.0 area 0
+!
+ip local pool RETRONET-LOCAL 192.168.21.40 192.168.21.49
+ip forward-protocol nd
+no ip http server
+no ip http secure-server
+!
+!
+ip dns server
+!
+ip access-list standard MGMT-SSH
+  permit 10.0.1.0 0.0.0.15
+  permit 10.0.1.16 0.0.0.15
+  permit 10.0.1.32 0.0.0.15
+!
+ip access-list extended RETRONET-IN
+  remark Legacy/dialup devices -- highest-risk segment, deny-by-default toward all internal ranges
+  remark Gateway services only: DNS, DHCP, NTP, rate-limited ICMP -- matches router1/router2 pattern
+  permit udp any host 192.168.21.1 eq domain
+  permit udp any host 192.168.21.1 eq bootps
+  permit udp any host 192.168.21.1 eq ntp
+  permit icmp any host 192.168.21.1
+  deny   ip any 10.0.0.0 0.255.255.255
+  deny   ip any 192.168.0.0 0.0.255.255
+  permit ip any any
+ip access-list extended SMARTHOME-IN
+  remark IoT/smart home devices -- deny-by-default toward all internal ranges
+  remark Gateway services only: DNS, DHCP, NTP, rate-limited ICMP -- matches router1/router2 pattern
+  permit udp any host 192.168.19.65 eq domain
+  permit udp any host 192.168.19.65 eq bootps
+  permit udp any host 192.168.19.65 eq ntp
+  permit icmp any host 192.168.19.65
+  deny   ip any 10.0.0.0 0.255.255.255
+  deny   ip any 192.168.0.0 0.0.255.255
+  permit ip any any
+!
+dialer-list 1 protocol ip permit
+!
+!
+!
+!
+!
+!
+control-plane
+!
+bridge 1 protocol ieee
+!
+voice-port 0/1/0
+  ring number 1
+  timeouts power-denial 2500
+  connection plar opx 5551111
+  description XLink direct
+  caller-id enable
+!
+voice-port 0/1/1
+!
+voice-port 0/1/2
+!
+voice-port 0/1/3
+!
+voice-port 0/3/0
+  no vad
+  description Modem
+!
+voice-port 0/3/1
+  no vad
+!
+voice-port 0/3/2
+  no vad
+  description Phone 2
+  caller-id enable
+!
+voice-port 0/3/3
+  no vad
+  description Phone 1
+  caller-id enable
+!
+!
+!
+mgcp profile default
+!
+!
+dial-peer voice 1101 pots
+  description Phone 1
+  destination-pattern 5551111
+  port 0/3/3
+!
+dial-peer voice 1102 pots
+  description Phone 2
+  destination-pattern 5552222
+  port 0/3/2
+!
+dial-peer voice 1105 pots
+  description Modem
+  destination-pattern 5555555
+  port 0/3/0
+!
+dial-peer voice 2000 pots
+  description Outbound 11-digit calls to XLink
+  destination-pattern 1[2-9]..[2-9]......
+  port 0/1/0
+  forward-digits 11
+!
+dial-peer voice 2001 pots
+  description Outbound 10-digit calls to XLink
+  destination-pattern [2-9]..[2-9]......
+  port 0/1/0
+  forward-digits 10
+!
+dial-peer voice 2002 pots
+  description 911 to XLink
+  destination-pattern 911
+  port 0/1/0
+  forward-digits 3
+!
+!
+!
+!
+!
+line con 0
+  logging synchronous
+  login local
+line aux 0
+  no exec
+  transport output none
+line 0/2/0
+  exec-timeout 0 0
+  modem InOut
+  transport preferred none
+  autoselect ppp
+  stopbits 1
+  speed 115200
+  flowcontrol hardware
+line 66
+  no activation-character
+  no exec
+  transport preferred none
+  transport input all
+  transport output lat pad telnet rlogin lapb-ta mop udptn v120 ssh
+line vty 0 4
+  access-class MGMT-SSH in
+  login local
+  transport input ssh
+line vty 5 15
+  access-class MGMT-SSH in
+  login local
+  transport input ssh
+!
+scheduler allocate 20000 1000
+ntp master 4
+ntp server 10.0.1.1 prefer
+end

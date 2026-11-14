@@ -1,0 +1,20 @@
+[Unit]
+Description=Step CA Certificate Renewer for {{ item.name }}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ generic_build_vars_return.primary_user.username }}
+ExecStart=/usr/bin/step ca renew \
+    {{ item.cert }} \
+    {{ item.key }} \
+    --ca-url {{ step_services.ca }} \
+    --root /usr/local/share/ca-certificates/step-ca-root.crt \
+    --daemon \
+    -f
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

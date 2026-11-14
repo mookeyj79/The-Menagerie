@@ -1,0 +1,61 @@
+---
+- name: Clone Catppuccin GRUB theme
+  ansible.builtin.git:
+    repo: https://github.com/catppuccin/grub.git
+    dest: /tmp/catppuccin-grub
+    version: main
+    depth: 1
+
+- name: Ensure GRUB theme directory exists
+  ansible.builtin.file:
+    path: /usr/share/grub/themes/
+    state: directory
+    mode: "0755"
+
+- name: Copy Catppuccin theme files to GRUB theme directory
+  ansible.builtin.copy:
+    src: /tmp/catppuccin-grub/src/
+    dest: /usr/share/grub/themes/
+    owner: root
+    group: root
+    mode: "0644"
+    remote_src: true
+
+- name: Ensure GRUB_THEME is set
+  vars:
+    theme: "{{ linux_setup_environment_install_catppuccin_theme | lower }}"
+  ansible.builtin.lineinfile:
+    path: /etc/default/grub
+    regexp: '^GRUB_THEME='
+    line: 'GRUB_THEME="/usr/share/grub/themes/catppuccin-{{ theme }}-grub-theme/theme.txt"'
+    create: true
+    backrefs: true
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Ensure GRUB_DISABLE_OS_PROBER is set to false
+  ansible.builtin.lineinfile:
+    path: /etc/default/grub
+    regexp: '^GRUB_DISABLE_OS_PROBER='
+    line: 'GRUB_DISABLE_OS_PROBER=false'
+    create: true
+    backrefs: true
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Update GRUB config
+  ansible.builtin.command: grub-mkconfig -o /boot/grub/grub.cfg
+  when: ansible_os_family == "Debian"
+  changed_when: false
+
+- name: Update GRUB config (RedHat)
+  ansible.builtin.command: grub2-mkconfig -o /boot/grub2/grub.cfg
+  when: ansible_os_family == "RedHat"
+  changed_when: false
+
+- name: Remove Catppuccin GRUB repo
+  ansible.builtin.file:
+    path: /tmp/catppuccin-grub
+    state: absent

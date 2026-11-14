@@ -1,0 +1,105 @@
+---
+# ------------------------------------------------------------
+# Resolve primary_user via generic engine (flat fields)
+# ------------------------------------------------------------
+- name: Resolve 'primary_user'
+  vars:
+    resolver_name: "primary_user"
+    resolver_mode: "object"
+
+    resolver_input_object: "{{ generic_build_vars_inputs.primary_user | default({}) }}"
+
+    resolver_schema:
+      username: ""
+      group: ""
+
+    resolver_defaults: {}
+
+    resolver_vault_key: "users/primary_user"
+    resolver_vault_mount: "{{ generic_build_vars_vault_mount }}"
+
+    resolver_enable_asserts: true
+    resolver_asserts_object:
+      username: string
+      group: string
+
+  ansible.builtin.include_tasks: base.yml
+
+
+# ------------------------------------------------------------
+# Post-processing:
+# - group defaulting behavior
+# - enrich with home via getent
+# ------------------------------------------------------------
+- name: Load resolved primary_user from return
+  no_log: true
+  ansible.builtin.set_fact:
+    _pu: "{{ (generic_build_vars_return | default({})).get('primary_user', {}) }}"
+
+- name: Verify primary_user resolver produced output
+  ansible.builtin.assert:
+    that:
+      - _pu is mapping
+      - (_pu.get('username', '') | string | trim | length) > 0
+    fail_msg: "primary_user resolver did not populate generic_build_vars_return['primary_user'] with a non-empty username."
+
+- name: Normalize primary_user.group default
+  no_log: true
+  vars:
+    _username: "{{ _pu.get('username','') | string | trim }}"
+    _group: "{{ _pu.get('group','') | string | trim }}"
+  ansible.builtin.set_fact:
+    generic_build_vars_return: >-
+      {{
+        (generic_build_vars_return | default({}))
+        | combine(
+            {
+              'primary_user': (
+                _pu
+                | combine(
+                    {
+                      'username': _username,
+                      'group': (_group if (_group | length) > 0 else _username)
+                    },
+                    recursive=True
+                  )
+              )
+            },
+            recursive=True
+          )
+      }}
+
+# passwd fields: [pw, uid, gid, name, home, shell]
+- name: Get 'primary_user' passwd entry
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ (generic_build_vars_return['primary_user']['username'] | string | trim) }}"
+  register: _primary_user_passwd
+
+- name: Return 'primary_user' with home
+  no_log: true
+  vars:
+    _uname: "{{ generic_build_vars_return['primary_user']['username'] | string | trim }}"
+    _home: "{{ _primary_user_passwd.ansible_facts.getent_passwd[_uname][4] | string | trim }}"
+  ansible.builtin.set_fact:
+    generic_build_vars_return: >-
+      {{
+        (generic_build_vars_return | default({}))
+        | combine(
+            {
+              'primary_user': (
+                generic_build_vars_return['primary_user']
+                | combine({ 'home': _home }, recursive=True)
+              )
+            },
+            recursive=True
+          )
+      }}
+
+- name: Verify 'primary_user' return structure
+  ansible.builtin.assert:
+    that:
+      - generic_build_vars_return['primary_user']['username'] is string
+      - generic_build_vars_return['primary_user']['group'] is string
+      - generic_build_vars_return['primary_user']['home'] is string
+    fail_msg: "Unable to verify 'primary_user' in 'generic_build_vars_return'!"

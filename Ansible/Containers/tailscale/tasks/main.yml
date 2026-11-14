@@ -1,0 +1,65 @@
+---
+- name: Tailscale Preparation
+  become: true
+  block:
+    - name: Build variables
+      ansible.builtin.include_role:
+        name: generic_build_vars
+      vars:
+        generic_build_vars_request: [tailscale]
+        generic_build_vars_inputs:
+          tailscale: "{{ tailscale | default({}) }}"
+
+    - name: Create Tailscale User
+      ansible.builtin.include_role:
+        name: linux_manage_accounts
+      vars:
+        linux_manage_accounts_users:
+          - name: tailscale
+            comment: Tailscale User
+            shell: /sbin/nologin
+            create_home: false
+            uid: 2006
+            append: false
+
+    - name: Check if Docker is installed
+      ansible.builtin.include_role:
+        name: generic_check_docker
+
+    - name: Create Tailscale directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: tailscale
+        group: docker
+        mode: "0750"
+      loop:
+        - "{{ apps_dir }}"
+        - "{{ apps_dir }}/tailscale"
+        - "{{ apps_dir }}/tailscale/bin"
+        - "{{ apps_dir }}/tailscale/data"
+        - "{{ apps_dir }}/tailscale/secrets"
+
+    - name: Copy startup script
+      ansible.builtin.copy:
+        src: "{{ role_path }}/files/start-tailscale.sh"
+        dest: "{{ apps_dir }}/tailscale/bin/start-tailscale.sh"
+        owner: tailscale
+        group: docker
+        mode: "0750"
+
+    - name: Create secret files
+      no_log: true
+      ansible.builtin.copy:
+        dest: "{{ apps_dir }}/tailscale/secrets/{{ item.dest }}"
+        content: "{{ item.content }}"
+        owner: tailscale
+        group: docker
+        mode: "0600"
+      loop:
+        - dest: tailscale_authkey
+          content: "{{ generic_build_vars_return.tailscale.authkey }}"
+        - dest: tailscale_hostname
+          content: "{{ generic_build_vars_return.tailscale.hostname }}"
+        - dest: tailscale_routes
+          content: "{{ generic_build_vars_return.tailscale.routes }}"

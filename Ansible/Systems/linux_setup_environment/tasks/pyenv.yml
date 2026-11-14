@@ -1,0 +1,81 @@
+---
+- name: Determine if Pyenv is already installed
+  ansible.builtin.stat:
+    path: "{{ generic_build_vars_return.primary_user.home }}/.pyenv/bin/pyenv"
+  register: pyenv_bin
+
+- name: Install Pyenv
+  when: not pyenv_bin.stat.exists
+  vars:
+    group: "{{ generic_build_vars_return.primary_user.group }}"
+    home: "{{ generic_build_vars_return.primary_user.home }}"
+    username: "{{ generic_build_vars_return.primary_user.username }}"
+
+  block:
+    - name: Clone Pyenv
+      ansible.builtin.git:
+        repo: https://github.com/pyenv/pyenv.git
+        dest: "{{ home }}/.pyenv"
+        version: master
+        update: false
+
+    - name: Ensure pyenv plugins dir exists
+      ansible.builtin.file:
+        path: "{{ home }}/.pyenv/plugins"
+        state: directory
+        mode: "0755"
+
+    - name: Clone pyenv plugins
+      ansible.builtin.git:
+        repo: "{{ plugin.repo }}"
+        dest: "{{ home }}/.pyenv/plugins/{{ plugin.name }}"
+        version: master
+        update: false
+      loop:
+        - name: pyenv-virtualenv
+          repo: https://github.com/pyenv/pyenv-virtualenv.git
+        - name: pyenv-update
+          repo: https://github.com/pyenv/pyenv-update.git
+        - name: pyenv-doctor
+          repo: https://github.com/pyenv/pyenv-doctor.git
+      loop_control:
+        loop_label: "{{ plugin.name }}"
+        loop_var: plugin
+
+    - name: Fix Permissions for '.pyenv'
+      ansible.builtin.file:
+        path: "{{ home }}/.pyenv"
+        state: directory
+        recurse: true
+        owner: "{{ username }}"
+        group: "{{ group }}"
+
+    - name: Ensure ~/.zsh exists
+      ansible.builtin.file:
+        path: "{{ home }}/.zsh"
+        state: directory
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0755"
+
+    - name: Copy Pyenv configuration script
+      ansible.builtin.copy:
+        src: "{{ role_path }}/files/pyenv/pyenv.zsh"
+        dest: "{{ home }}/.zsh/pyenv.zsh"
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0644"
+
+    - name: Ensure sources.zsh exists
+      ansible.builtin.file:
+        path: "{{ home }}/.zsh/sources.zsh"
+        state: touch
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0644"
+
+    - name: Add Pyenv script to 'sources.zsh'
+      ansible.builtin.lineinfile:
+        path: "{{ home }}/.zsh/sources.zsh"
+        line: '[[ -f "$HOME/.zsh/pyenv.zsh" ]] && source "$HOME/.zsh/pyenv.zsh"'
+        regexp: '^\[\[ -f "\$HOME\/\.zsh\/pyenv\.zsh" \]\] && source "\$HOME\/\.zsh\/pyenv\.zsh"$'

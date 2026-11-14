@@ -1,0 +1,79 @@
+---
+- name: Install packages
+  community.general.apk:
+    name:
+      - bat
+      - bind-tools
+      - btop
+      - build-base
+      - ca-certificates
+      - curl
+      - dos2unix
+      - eza
+      - fastfetch
+      - fd
+      - file
+      - font-powerline
+      - fzf
+      - git
+      - gnupg
+      - helix
+      - htop
+      - iotop
+      - jq
+      - llvm
+      - lm_sensors
+      - lsb-release
+      - make
+      - nano
+      - nethogs
+      - p7zip
+      - procps
+      - python3
+      - python3-dev
+      - py3-pip
+      - py3-setuptools
+      - py3-wheel
+      - ripgrep
+      - screen
+      - starship
+      - tmux
+      - tree
+      - unrar
+      - unzip
+      - vim
+      - wget
+      - xz
+      - yq
+      - zoxide
+      - zsh
+    state: present
+    update_cache: true
+
+- name: Install Pyenv required packages
+  when: linux_setup_environment_install_pyenv | bool
+  community.general.apk:
+    name:
+      - bzip2-dev
+      - libffi-dev
+      - xz-dev
+      - ncurses-dev
+      - readline-dev
+      - sqlite-dev
+      - openssl-dev
+      - py3-virtualenv
+      - tk-dev
+      - zlib-dev
+    state: present
+    update_cache: true
+
+- name: Install MOTD required packages
+  when: linux_setup_environment_install_motd | bool
+  community.general.apk:
+    name:
+      - boxes
+      - figlet
+      - lolcat
+      - toilet
+    state: present
+    update_cache: true

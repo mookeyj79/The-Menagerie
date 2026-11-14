@@ -1,0 +1,144 @@
+{% import 'generic_build_vars/_vault_macros.j2' as vmac %}
+
+{% set u = _r_input_map if _r_input_map is mapping else {} %}
+{% set schema_fields = _r_item_schema.keys() | list %}
+{% set user_keys = u.keys() | list %}
+{% set defaults_fields = (_r_item_defaults.keys() | list) if (_r_item_defaults is mapping) else [] %}
+
+{# list vault keys if strategy requires #}
+{% set vault_keys = [] %}
+{% if _r_vault_list_first and (_r_vault_list_path | length > 0) %}
+  {% set should_list = (_r_map_key_strategy == 'union')
+                      or ((_r_map_key_strategy == 'vault_if_empty') and (user_keys | length == 0)) %}
+  {% if should_list %}
+    {% set vlist = query(
+          'community.hashi_vault.vault_list',
+          _r_vault_list_path,
+          errors='ignore'
+        ) | default([]) %}
+
+    {% if (vlist | length) > 0
+          and (vlist[0] is mapping)
+          and (vlist[0].data is defined)
+          and (vlist[0].data is mapping) %}
+      {# IMPORTANT: use get('keys') not .keys (method collision) #}
+      {% set vault_keys = (vlist[0].data.get('keys', []) | default([])) %}
+    {% endif %}
+  {% endif %}
+{% endif %}
+{% set vault_keys = vault_keys | list %}
+
+{# choose final key set #}
+{% if _r_map_key_strategy == 'union' %}
+  {% set keys = user_keys + vault_keys %}
+{% elif (_r_map_key_strategy == 'vault_if_empty') and (user_keys | length == 0) %}
+  {% set keys = vault_keys %}
+{% else %}
+  {% set keys = user_keys %}
+{% endif %}
+{% set keys = keys | unique | sort %}
+
+{% set out = {} %}
+
+{% for key in keys %}
+  {% set inp_item = u.get(key,{}) %}
+  {% if inp_item is not mapping %}{% set inp_item = {} %}{% endif %}
+  {% set user_item_fields = inp_item.keys() | list %}
+
+  {# start with schema to establish known fields #}
+  {% set item = _r_item_schema | combine({}, recursive=True) %}
+
+  {# apply per-item defaults (lowest priority) #}
+  {% if _r_item_defaults is mapping %}
+    {% for f, dv in _r_item_defaults.items() %}
+      {% if f in schema_fields %}
+        {% set _ = item.update({ f: dv }) %}
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+
+  {# overlay user-provided fields WITHOUT stringifying #}
+  {% for f in schema_fields %}
+    {% if f in user_item_fields %}
+      {% set vv = inp_item.get(f) %}
+      {% if _r_trim_user_values and (vv is string) %}
+        {% set vv = vv | trim %}
+      {% endif %}
+      {% set _ = item.update({ f: vv }) %}
+    {% endif %}
+  {% endfor %}
+
+  {# decide if vault needed (boolean blank checks, no macro/string compare) #}
+  {% set ns = namespace(need_vault=false) %}
+  {% for f in schema_fields %}
+    {% set cur = item.get(f) %}
+    {% set cur_blank =
+        (cur is none)
+        or (cur is string and (cur | trim | length) == 0)
+        or (cur is mapping and (cur | length) == 0)
+        or (cur is sequence and (cur is not string) and (cur | length) == 0)
+    %}
+    {% if (f not in user_item_fields) and (cur_blank or (f in defaults_fields)) %}
+      {% set ns.need_vault = true %}
+    {% endif %}
+  {% endfor %}
+
+  {% set v_secret = {} %}
+  {% if ns.need_vault and (_r_vault_item_prefix | length > 0) %}
+    {% set raw = lookup(
+          'community.hashi_vault.vault_kv2_get',
+          _r_vault_item_prefix ~ key,
+          engine_mount_point=_r_vault_mount,
+          errors='ignore'
+        ) | default({}) %}
+    {% set v_secret = vmac.kv2_secret(raw) %}
+  {% endif %}
+
+  {# fill from vault ONLY for fields user did NOT provide #}
+  {% for f in schema_fields %}
+    {% set cur = item.get(f) %}
+    {% set cur_blank =
+        (cur is none)
+        or (cur is string and (cur | trim | length) == 0)
+        or (cur is mapping and (cur | length) == 0)
+        or (cur is sequence and (cur is not string) and (cur | length) == 0)
+    %}
+    {% if (f not in user_item_fields) and (cur_blank or (f in defaults_fields)) %}
+      {% set vv = v_secret.get(f) %}
+      {% if vv is string %}
+        {% set vv = vv | trim %}
+      {% endif %}
+      {# only set if vault has something meaningful #}
+      {% if vv is not none and ((vv is string and (vv | length) > 0) or (vv is not string)) %}
+        {% set _ = item.update({ f: vv }) %}
+      {% endif %}
+    {% endif %}
+  {% endfor %}
+
+  {# transforms (map mode): apply ONLY if user did NOT provide the field #}
+  {% if _r_transforms_item is mapping %}
+    {% for f, t in _r_transforms_item.items() %}
+      {% if f in schema_fields and (f not in user_item_fields) %}
+        {% set cur = item.get(f) %}
+        {% if cur is string and (cur | length) > 0 %}
+          {% if (t | string | lower) == 'base64decode' %}
+            {% set _ = item.update({ f: (cur | b64decode) }) %}
+          {% endif %}
+        {% endif %}
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+
+  {# optionally keep unknown fields #}
+  {% if _r_allow_unknown_item_fields %}
+    {% for k,v in inp_item.items() %}
+      {% if k not in schema_fields %}
+        {% set _ = item.update({ k: v }) %}
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+
+  {% set _ = out.update({ key: item }) %}
+{% endfor %}
+
+{{ out | to_json }}

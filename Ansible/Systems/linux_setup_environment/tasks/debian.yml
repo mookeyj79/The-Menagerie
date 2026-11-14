@@ -1,0 +1,128 @@
+---
+- name: Install required packages
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gpg
+    update_cache: true
+
+- name: Add deb.gierens.de APT repository
+  ansible.builtin.deb822_repository:
+    name: gierens
+    types: ["deb"]
+    uris: http://deb.gierens.de
+    suites: ["stable"]
+    components: main
+    signed_by: "https://raw.githubusercontent.com/eza-community/eza/main/deb.asc"
+    enabled: true
+
+- name: Add Helix editor APT repository
+  ansible.builtin.deb822_repository:
+    name: helix
+    types: ["deb"]
+    uris: "https://ppa.launchpadcontent.net/maveonair/helix-editor/ubuntu"
+    suites: ["{{ ubuntu_series }}"]
+    components: main
+    signed_by: "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x27642B9FD7F1A161FC2524E3355A4FA515D7C855"
+    enabled: true
+  vars:
+    ubuntu_series: >-
+      {{ 'noble'
+      if ansible_facts.distribution == 'Debian'
+      else (ansible_facts.lsb.codename | default(ansible_facts.distribution_release)) }}
+
+- name: Install packages (Debian)
+  ansible.builtin.apt:
+    name:
+      - bat
+      - bind9-dnsutils
+      - btop
+      - build-essential
+      - command-not-found
+      - dos2unix
+      - eza
+      - fastfetch
+      - fd-find
+      - file
+      - fonts-powerline
+      - fzf
+      - git
+      - helix
+      - htop
+      - iotop
+      - jq
+      - llvm
+      - lm-sensors
+      - lsb-release
+      - make
+      - nano
+      - nethogs
+      - p7zip-full
+      - procps
+      - python3
+      - python3-dev
+      - python3-pip
+      - python3-setuptools
+      - python3-wheel
+      - ripgrep
+      - screen
+      - starship
+      - tmux
+      - tree
+      - unrar-free
+      - unzip
+      - vim
+      - wget
+      - xz-utils
+      - yq
+      - zoxide
+      - zsh
+    state: present
+    update_cache: true
+
+- name: Install GRUB required packages
+  when: linux_setup_environment_install_grub | bool
+  ansible.builtin.apt:
+    name: os-prober
+    state: present
+    update_cache: true
+
+- name: Install Pyenv required packages
+  when: linux_setup_environment_install_pyenv | bool
+  ansible.builtin.apt:
+    name:
+      - libbz2-dev
+      - libffi-dev
+      - liblzma-dev
+      - libncursesw5-dev
+      - libreadline-dev
+      - libsqlite3-dev
+      - libssl-dev
+      - python3-venv
+      - tk-dev
+      - zlib1g-dev
+    state: present
+    update_cache: true
+
+- name: Install MOTD required packages
+  when: linux_setup_environment_install_motd | bool
+  ansible.builtin.apt:
+    name:
+      - boxes
+      - figlet
+      - lastlog2
+      - lolcat
+      - toilet
+    state: present
+    update_cache: true
+
+- name: Create symlinks (Debian)
+  ansible.builtin.file:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    state: link
+    force: true
+  loop:
+    - { src: /usr/bin/fdfind, dest: /usr/bin/fd }
+    - { src: /usr/bin/batcat, dest: /usr/bin/bat }

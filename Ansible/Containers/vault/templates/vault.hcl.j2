@@ -1,0 +1,36 @@
+# Vault configuration file
+
+# Enable Vault UI
+ui = true
+
+# Disable Memory Lock
+disable_mlock = true
+
+# Storage backend - Use local file system for persistence
+storage "file" {
+  path = "/vault/file"
+}
+
+# Listener configuration - Serve on port 8200
+listener "tcp" {
+  address     = "0.0.0.0:8200"
+  cluster_address = "0.0.0.0:8201"
+  # tls_disable = 1
+  # tls_cert_file = "/vault/certs/vault-cert.pem"
+  # tls_key_file = "/vault/certs/vault-key.pem"
+}
+
+# Auto-unseal configuration using AWS KMS
+seal "awskms" {
+  region = "{{ vault.aws_region}}"
+  kms_key_id = "{{ vault.kms_key_id}}"
+}
+
+# Enable API access controls
+api_addr = "http://localhost:8200"
+cluster_addr = "https://localhost:8201"
+
+# Enable audit logging
+audit "file" {
+  path = "/vault/logs/vault_audit.log"
+}

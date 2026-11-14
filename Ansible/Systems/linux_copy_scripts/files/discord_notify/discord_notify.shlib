@@ -1,0 +1,46 @@
+#!/usr/bin/bash
+
+###############################
+# Discord Notification Script #
+###############################
+
+DISCORD_CONFIG="/opt/scripts/discord_notify/discord_notify.conf"
+
+source /opt/scripts/libs/colors.shlib
+
+send_discord() {
+    if [[ -f "$DISCORD_CONFIG" ]]; then
+        source "$DISCORD_CONFIG"
+    else
+        printf "${RED}[!]${RESET} Missing Discord config at $DISCORD_CONFIG!\n" >&2
+        exit 1
+    fi
+
+    if [[ $# -lt 1 ]]; then
+        printf "${GREEN}Usage: ${CYAN}$0 ${WHITE}\"Message text\" ${YELLOW}[key=value ...]${RESET}\n" >&2
+        exit 1
+    fi
+
+    CONTENT="$1"
+    shift
+
+    JSON_PAYLOAD="{\"content\": \"${CONTENT//\"/\\\"}\""
+
+    for arg in "$@"; do
+        if [[ "$arg" == *=* ]]; then
+            key="${arg%%=*}"
+            val="${arg#*=}"
+            val="${val//\"/\\\"}"
+            JSON_PAYLOAD+=", \"$key\": \"$val\""
+        fi
+    done
+
+    JSON_PAYLOAD+="}"
+
+    curl -s -H "Content-Type: application/json" \
+        -X POST -d "$JSON_PAYLOAD" "$DISCORD_WEBHOOK_URL" > /dev/null
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    send_discord "$@"
+fi

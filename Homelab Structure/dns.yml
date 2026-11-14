@@ -1,0 +1,1270 @@
+# ============================================================================
+# dns.yml - Single source of truth for all DNS records across all domains
+# ============================================================================
+# SCHEMA - domains
+# ============================================================================
+#
+#   name        : zone name (e.g. mikewashere.lan)
+#   type        : internal | external
+#                   internal - served by router static DNS / AdGuard; .lan only
+#                   external - served by a cloud DNS provider; publicly routable
+#   description : human-readable purpose
+#   provider    : cloudflare (external only; omit for internal)
+#   notes       : free-form operational notes
+#
+# ============================================================================
+#
+# SCHEMA - records
+# ============================================================================
+#
+#   name         short kebab-case service identifier; used as the default
+#                subdomain on every domain unless overridden. Use "@" for
+#                the zone apex (requires explicit subdomain on every entry).
+#   type         A | CNAME  (default: A; omit for standard service records)
+#   ip           private IP the record resolves to on the internal domain,
+#                and the Cloudflare origin IP for external proxied records.
+#                Required when the record appears on any internal domain.
+#                Omit only for CNAME records (use `target` instead).
+#   target       CNAME target hostname, relative to the domain.
+#                Required when type: CNAME; omit for A records.
+#   host         cross-reference to the systems.yml hostname that ultimately
+#                serves this record (the physical/VM host behind any VIP).
+#                Optional but strongly encouraged; used for impact analysis
+#                and documentation.
+#   notes        free-form operational notes
+#   domains      one or more domain entries; see sub-schema below
+#
+# domains sub-schema (within a record):
+#
+#   Shorthand (string): the domain name as a plain string. The record `name`
+#   is used as the subdomain. No Cloudflare proxy.
+#
+#     domains:
+#       - mikewashere.lan
+#       - mikewashere.com
+#
+#   Verbose (mapping): use when overriding the subdomain, enabling the
+#   Cloudflare proxy, or setting a custom TTL.
+#
+#     domains:
+#       - mikewashere.lan                  # shorthand; subdomain = record name
+#       - domain: narly.ninja
+#         subdomain: watch                 # optional; overrides record name
+#         proxied: true                    # optional; boolean; default false
+#         ttl: 300                         # optional; seconds; default: provider auto
+#
+#   Shorthand and verbose entries may be mixed freely in the same list.
+#
+# ============================================================================
+#
+# SCHEMA - zones
+# ============================================================================
+#
+#   domain  : must match a name declared in the `domains` section
+#   records : list of raw DNS records for this zone
+#
+# Raw record fields (canonical order):
+#
+#   type      A | AAAA | CNAME | MX | TXT | SRV | NS | CAA
+#   name      subdomain label, or "@" for the zone apex
+#   value     record value (IP for A/AAAA; hostname for CNAME/MX/NS;
+#             quoted string for TXT; see RFC for SRV/CAA)
+#   priority  MX or SRV priority (integer); omit for all other types
+#   proxied   optional boolean; Cloudflare A/CNAME proxy; default false
+#   ttl       optional integer seconds; default: provider auto
+#   notes     optional free-form notes
+#
+# ============================================================================
+
+domains:
+  - name: mikewashere.lan
+    type: internal
+    description: Internal-only zone; authoritative on Router1 static DNS, future AdGuard Home
+
+  - name: mikewashere.man
+    type: internal
+    description: Management zone for infrastructure services
+
+  - name: mikewashere.com
+    type: external
+    provider: cloudflare
+    description: Primary public domain; contains most "legitimate", non-media content
+
+  - name: pokebob.com
+    type: external
+    provider: cloudflare
+    description: External site for Pokemon GTS/Mystery Gift Emulation
+
+  - name: narly.ninja
+    type: external
+    provider: cloudflare
+    description: Media Access Site/Game Servers; mirrors most internal services via split-horizon
+
+records:
+
+# ----------------------------------------------------------------------------
+# Top-Level
+# ----------------------------------------------------------------------------
+
+  - name: '@'
+    domains:
+      - mikewashere.com
+      - narly.ninja
+      - pokebob.com
+    host: ingress1
+    interface: eth0
+    type: A
+
+  - name: '@'
+    domains:
+      - mikewashere.lan
+    host: ingress2
+    interface: eth0
+    type: A
+
+  - name: '@'
+    domains:
+      - mikewashere.man
+    host: router2
+    interface: VLAN101
+    type: A
+
+# ----------------------------------------------------------------------------
+# Hardware Management
+# ----------------------------------------------------------------------------
+
+  - name: ap1
+    domains:
+      - mikewashere.man
+    host: ap1
+    interface: main
+    type: A
+
+  - name: ap2
+    domains:
+      - mikewashere.man
+    host: ap2
+    interface: main
+    type: A
+
+  - name: fw1
+    domains:
+      - mikewashere.man
+    host: fw1
+    interface: management
+    type: A
+
+  - name: fw2
+    domains:
+      - mikewashere.man
+    host: fw2
+    interface: management
+    type: A
+
+  - name: fw3
+    domains:
+      - mikewashere.man
+    host: fw3
+    interface: management
+    type: A
+
+  - name: fw4
+    domains:
+      - mikewashere.man
+    host: fw4
+    interface: management
+    type: A
+
+  - name: switch1
+    domains:
+      - mikewashere.man
+    host: switch1
+    interface: management
+    type: A
+
+  - name: switch2
+    domains:
+      - mikewashere.man
+    host: switch2
+    interface: management
+    type: A
+
+  - name: switch3
+    domains:
+      - mikewashere.man
+    host: switch3
+    interface: management
+    type: A
+
+  - name: switch4
+    domains:
+      - mikewashere.man
+    host: switch4
+    interface: management
+    type: A
+
+  - name: router0
+    domains:
+      - mikewashere.man
+    ip: 192.168.2.1
+    type: A
+
+  - name: router1
+    domains:
+      - mikewashere.man
+    host: router1
+    interface: VLAN101
+    type: A
+
+  - name: router2
+    domains:
+      - mikewashere.man
+    host: router2
+    interface: VLAN101
+    type: A
+
+  - name: router3
+    domains:
+      - mikewashere.man
+    host: router3
+    interface: FastEthernet2/0.101
+    type: A
+
+# ----------------------------------------------------------------------------
+# Physical Servers
+# ----------------------------------------------------------------------------
+
+  - name: bastion1
+    domains:
+      - mikewashere.lan
+    host: bastion1
+    interface: eth0.16
+    type: A
+
+  - name: file1
+    domains:
+      - mikewashere.lan
+    host: file1
+    interface: eth0.16
+    type: A
+
+  - name: file1
+    domains:
+      - mikewashere.man
+    host: file1
+    interface: eth0.102
+    type: A
+
+  - name: file1-idrac
+    domains:
+      - mikewashere.man
+    host: file1
+    interface: idrac
+    type: A
+
+  - name: ml1
+    domains:
+      - mikewashere.lan
+    host: ml1
+    interface: eth0.16
+    type: A
+
+  - name: ntp1
+    domains:
+      - mikewashere.lan
+    host: ntp1
+    interface: eth0.4
+    type: A
+
+  - name: nut1
+    domains:
+      - mikewashere.lan
+    host: nut1
+    interface: eth0.16
+    type: A
+
+# ----------------------------------------------------------------------------
+# Hypervisors
+# ----------------------------------------------------------------------------
+
+  - name: pve1
+    domains:
+      - mikewashere.man
+    host: pve1
+    interface: eth0
+    type: A
+
+  - name: pve2
+    domains:
+      - mikewashere.man
+    host: pve2
+    interface: eth0
+    type: A
+
+  - name: pve3
+    domains:
+      - mikewashere.man
+    host: pve3
+    interface: eth0
+    type: A
+
+  - name: pve4
+    domains:
+      - mikewashere.man
+    host: pve4
+    interface: eth0
+    type: A
+
+  - name: pve5
+    domains:
+      - mikewashere.man
+    host: pve5
+    interface: eth0
+    type: A
+
+  - name: pve6
+    domains:
+      - mikewashere.man
+    host: pve6
+    interface: eth0
+    type: A
+
+  - name: pve7
+    domains:
+      - mikewashere.man
+    host: pve7
+    interface: eth0
+    type: A
+
+# ----------------------------------------------------------------------------
+# Servers
+# ----------------------------------------------------------------------------
+
+  # DMZ - Servers
+  - name: game1
+    domains:
+      - mikewashere.lan
+    host: game1
+    interface: eth0
+    type: A
+
+  - name: ingress1
+    domains:
+      - mikewashere.lan
+    host: ingress1
+    interface: eth0
+    type: A
+
+  - name: ingress2
+    domains:
+      - mikewashere.lan
+    host: ingress2
+    interface: eth0
+    type: A
+
+  - name: ca1
+    domains:
+      - mikewashere.lan
+    host: ca1
+    interface: eth0
+    type: A
+
+  - name: dc1
+    domains:
+      - mikewashere.lan
+    host: dc1
+    interface: eth0
+    type: A
+
+  - name: feeder1
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    interface: eth0
+    type: A
+
+  - name: secmon1
+    domains:
+      - mikewashere.lan
+    host: secmon1
+    interface: eth0
+    type: A
+
+  - name: seeder1
+    domains:
+      - mikewashere.lan
+    host: seeder1
+    interface: eth0
+    type: A
+
+  - name: transcode1
+    domains:
+      - mikewashere.lan
+    host: transcode1
+    interface: eth0
+    type: A
+
+  - name: tunnel1
+    domains:
+      - mikewashere.lan
+    host: tunnel1
+    interface: eth0
+    type: A
+
+  - name: vault1
+    domains:
+      - mikewashere.lan
+    host: vault1
+    interface: eth0
+    type: A
+
+# ----------------------------------------------------------------------------
+# Devices
+# ----------------------------------------------------------------------------
+
+  - name: printer1
+    domains:
+      - mikewashere.lan
+    host: printer1
+    interface: main
+    type: A
+
+  - name: printer2
+    domains:
+      - mikewashere.lan
+    host: printer2
+    interface: main
+    type: A
+
+  - name: printfil1
+    domains:
+      - mikewashere.lan
+    host: printfil1
+    interface: eth0
+    type: A
+
+  - name: printfil2
+    domains:
+      - mikewashere.lan
+    host: printfil2
+    interface: eth0
+    type: A
+
+  - name: printres1
+    domains:
+      - mikewashere.lan
+    host: printres1
+    interface: main
+    type: A
+
+  - name: printres2
+    domains:
+      - mikewashere.lan
+    host: printres2
+    interface: main
+    type: A
+
+  - name: laser1
+    domains:
+      - mikewashere.lan
+    host: laser1
+    interface: main
+    type: A
+
+  - name: cnc1
+    domains:
+      - mikewashere.lan
+    host: cnc1
+    interface: main
+    type: A
+
+  - name: cutter1
+    domains:
+      - mikewashere.lan
+    host: cutter1
+    interface: main
+    type: A
+
+# ----------------------------------------------------------------------------
+# SmartHome
+# ----------------------------------------------------------------------------
+
+  - name: led-strip1
+    domains:
+      - mikewashere.lan
+    ip: 192.168.19.15
+    type: A
+
+  - name: led-strip2
+    domains:
+      - mikewashere.lan
+    ip: 192.168.19.16
+    type: A
+
+  - name: led-strip3
+    domains:
+      - mikewashere.lan
+    ip: 192.168.19.17
+    type: A
+
+  - name: led-strip4
+    domains:
+      - mikewashere.lan
+    ip: 192.168.19.18
+    type: A
+
+# ----------------------------------------------------------------------------
+# Services
+# ----------------------------------------------------------------------------
+
+  # === CA1 ===
+
+  - name: ca
+    domains:
+      - mikewashere.lan
+    host: ca1
+    target: ingress2
+    type: CNAME
+
+  # === DevOps1 ===
+
+  - name: atlantis
+    domains:
+      - mikewashere.lan
+    host: devops1
+    target: ingress2
+    type: CNAME
+
+  - name: awx
+    domains:
+      - mikewashere.lan
+    host: devops1
+    target: ingress2
+    type: CNAME
+
+  - name: devops
+    domains:
+      - mikewashere.lan
+    host: devops1
+    target: ingress2
+    type: CNAME
+
+  - name: gitlab
+    domains:
+      - mikewashere.lan
+    host: devops1
+    target: ingress2
+    type: CNAME
+
+  - name: kestra
+    domains:
+      - mikewashere.lan
+    host: devops1
+    target: ingress2
+    type: CNAME
+
+  - name: wud
+    domains:
+      - mikewashere.lan
+    host: devops1
+    target: ingress2
+    type: CNAME
+
+  # === Feeder1 ===
+
+  - name: autobrr
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: bazarr-4k
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: bazarr-anime
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: bazarr
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: calibre
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: checkrr
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: dispatcharr
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: jdownloader
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: kapowarr
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: lidarr-flac
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: lidarr-mp3
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: maintainerr
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: picard
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: pinchflat
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: posterizarr
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: prowlarr
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: qbittorrent
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: qui
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: radarr-4k
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: radarr-anime
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: radarr
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: readarr-audiobooks
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: readarr-ebooks
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: sabnzbd
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: sonarr-4k
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: sonarr-anime
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: sonarr
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: spotweb
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: tautulli
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: wallabag
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: whisparr-4k
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  - name: whisparr
+    domains:
+      - mikewashere.lan
+    host: feeder1
+    target: ingress2
+    type: CNAME
+
+  # === File1 ===
+
+  - name: influxdb
+    domains:
+      - mikewashere.lan
+    host: file1
+    target: ingress2
+    type: CNAME
+
+  - name: nextcloud
+    domains:
+      - mikewashere.lan
+    host: file1
+    target: ingress2
+    type: CNAME
+
+  - name: postgresql
+    domains:
+      - mikewashere.lan
+    host: file1
+    target: ingress2
+    type: CNAME
+
+  - name: redis
+    domains:
+      - mikewashere.lan
+    host: file1
+    target: ingress2
+    type: CNAME
+
+  - name: rustfs
+    domains:
+      - mikewashere.lan
+    host: file1
+    target: ingress2
+    type: CNAME
+
+  - name: syncthing
+    domains:
+      - mikewashere.lan
+    host: file1
+    target: ingress2
+    type: CNAME
+
+  # === Ingress1 ===
+
+  - name: adguard.ingress1
+    domains:
+      - mikewashere.lan
+    host: ingress1
+    target: ingress1
+    type: CNAME
+
+  - name: traefik.ingress1
+    domains:
+      - mikewashere.lan
+    host: ingress1
+    target: ingress1
+    type: CNAME
+
+  - name: www
+    domains:
+      - mikewashere.com
+      - narly.ninja
+      - pokebob.com
+    host: ingress1
+    target: ingress1
+    type: CNAME
+
+  # === Ingress2 ===
+
+  - name: adguard.ingress2
+    domains:
+      - mikewashere.lan
+    host: ingress2
+    target: ingress2
+    type: CNAME
+
+  - name: authentik
+    domains:
+      - mikewashere.lan
+    host: ingress2
+    target: ingress2
+    type: CNAME
+
+  - name: traefik.ingress2
+    domains:
+      - mikewashere.lan
+    host: ingress2
+    target: ingress2
+    type: CNAME
+
+  - name: www
+    domains:
+      - mikewashere.lan
+    host: ingress2
+    target: ingress2
+    type: CNAME
+
+  # === ML1 ===
+
+  - name: chat
+    domains:
+      - mikewashere.lan
+    host: ml1
+    target: ingress2
+    type: CNAME
+
+  - name: code
+    domains:
+      - mikewashere.lan
+    host: ml1
+    target: ingress2
+    type: CNAME
+
+  - name: comfyui
+    domains:
+      - mikewashere.lan
+    host: ml1
+    target: ingress2
+    type: CNAME
+
+  # === Game1 ===
+  - name: amu
+    domains:
+      - mikewashere.lan
+    host: game1
+    target: ingress2
+    type: CNAME
+
+  - name: foundry
+    domains:
+      - mikewashere.lan
+    host: game1
+    target: ingress2
+    type: CNAME
+
+  - name: pelican
+    domains:
+      - mikewashere.lan
+    host: game1
+    target: ingress2
+    type: CNAME
+
+  - name: valheim
+    domains:
+      - mikewashere.lan
+    host: game1
+    target: ingress2
+    type: CNAME
+
+  - name: vrising
+    domains:
+      - mikewashere.lan
+    host: game1
+    target: ingress2
+    type: CNAME
+
+  # === NUT1 ===
+
+  - name: peanut
+    domains:
+      - mikewashere.lan
+    host: nut1
+    target: ingress2
+    type: CNAME
+
+  # === PrintFil1 ===
+
+  - name: spoolman
+    domains:
+      - mikewashere.lan
+    host: printfil1
+    target: ingress2
+    type: CNAME
+
+  # === SecMon1 ===
+
+  - name: beszel
+    domains:
+      - mikewashere.lan
+    host: secmon1
+    target: ingress2
+    type: CNAME
+
+  - name: crowdsec
+    domains:
+      - mikewashere.lan
+    host: secmon1
+    target: ingress2
+    type: CNAME
+
+  - name: dozzle
+    domains:
+      - mikewashere.lan
+    host: secmon1
+    target: ingress2
+    type: CNAME
+
+  - name: frigate
+    domains:
+      - mikewashere.lan
+    host: secmon1
+    target: ingress2
+    type: CNAME
+
+  - name: grafana
+    domains:
+      - mikewashere.lan
+    host: secmon1
+    target: ingress2
+    type: CNAME
+
+  - name: speedtest
+    domains:
+      - mikewashere.lan
+    host: secmon1
+    target: ingress2
+    type: CNAME
+
+  - name: uptime
+    domains:
+      - mikewashere.lan
+    host: secmon1
+    target: ingress2
+    type: CNAME
+
+  # === Seeder1 ===
+
+  - name: audiobooks
+    domains:
+      - mikewashere.lan
+    host: seeder1
+    target: ingress2
+    type: CNAME
+
+  - name: audiobooks
+    domains:
+      - narly.ninja
+    host: seeder1
+    target: ingress1
+    type: CNAME
+
+  - name: ebooks
+    domains:
+      - mikewashere.lan
+    host: seeder1
+    target: ingress2
+    type: CNAME
+
+  - name: ebooks
+    domains:
+      - narly.ninja
+    host: seeder1
+    target: ingress1
+    type: CNAME
+
+  - name: filestash
+    domains:
+      - mikewashere.lan
+    host: seeder1
+    target: ingress2
+    type: CNAME
+
+  - name: filestash
+    domains:
+      - narly.ninja
+    host: seeder1
+    target: ingress1
+    type: CNAME
+
+  - name: lubelogger
+    domains:
+      - mikewashere.lan
+    host: seeder1
+    target: ingress2
+    type: CNAME
+
+  - name: lubelogger
+    domains:
+      - narly.ninja
+    host: seeder1
+    target: ingress1
+    type: CNAME
+
+  - name: metube
+    domains:
+      - mikewashere.lan
+    host: seeder1
+    target: ingress2
+    type: CNAME
+
+  - name: metube
+    domains:
+      - narly.ninja
+    host: seeder1
+    target: ingress1
+    type: CNAME
+
+  - name: music
+    domains:
+      - mikewashere.lan
+    host: seeder1
+    target: ingress2
+    type: CNAME
+
+  - name: music
+    domains:
+      - narly.ninja
+    host: seeder1
+    target: ingress1
+    type: CNAME
+
+  - name: pdf
+    domains:
+      - mikewashere.lan
+    host: seeder1
+    target: ingress2
+    type: CNAME
+
+  - name: pdf
+    domains:
+      - narly.ninja
+    host: seeder1
+    target: ingress1
+    type: CNAME
+
+  - name: photos
+    domains:
+      - mikewashere.lan
+    host: seeder1
+    target: ingress2
+    type: CNAME
+
+  - name: photos
+    domains:
+      - narly.ninja
+    host: seeder1
+    target: ingress1
+    type: CNAME
+
+  - name: psitransfer
+    domains:
+      - mikewashere.lan
+    host: seeder1
+    target: ingress2
+    type: CNAME
+
+  - name: psitransfer
+    domains:
+      - narly.ninja
+    host: seeder1
+    target: ingress1
+    type: CNAME
+
+  - name: seerr
+    domains:
+      - mikewashere.lan
+    host: seeder1
+    target: ingress2
+    type: CNAME
+
+  - name: seerr
+    domains:
+      - narly.ninja
+    host: seeder1
+    target: ingress1
+    type: CNAME
+
+  - name: stash
+    domains:
+      - mikewashere.lan
+    host: seeder1
+    target: ingress2
+    type: CNAME
+
+  - name: stash
+    domains:
+      - narly.ninja
+    host: seeder1
+    target: ingress1
+    type: CNAME
+
+  - name: tandoor
+    domains:
+      - mikewashere.lan
+    host: seeder1
+    target: ingress2
+    type: CNAME
+
+  - name: tandoor
+    domains:
+      - narly.ninja
+    host: seeder1
+    target: ingress1
+    type: CNAME
+
+  - name: vaultwarden
+    domains:
+      - mikewashere.lan
+    host: seeder1
+    target: ingress2
+    type: CNAME
+
+  - name: vaultwarden
+    domains:
+      - narly.ninja
+    host: seeder1
+    target: ingress1
+    type: CNAME
+
+  - name: wizarr
+    domains:
+      - mikewashere.lan
+    host: seeder1
+    target: ingress2
+    type: CNAME
+
+  - name: wizarr
+    domains:
+      - narly.ninja
+    host: seeder1
+    target: ingress1
+    type: CNAME
+
+  # === transcode1 ===
+
+  - name: jellyfin
+    domains:
+      - mikewashere.lan
+    host: transcode1
+    target: ingress2
+    type: CNAME
+
+  - name: jellyfin
+    domains:
+      - narly.ninja
+    host: transcode1
+    target: ingress1
+    type: CNAME
+
+  - name: plex
+    domains:
+      - mikewashere.lan
+    host: transcode1
+    target: ingress2
+    type: CNAME
+
+  - name: plex
+    domains:
+      - narly.ninja
+    host: transcode1
+    target: ingress1
+    type: CNAME
+
+  - name: tdarr
+    domains:
+      - mikewashere.lan
+    host: transcode1
+    target: ingress2
+    type: CNAME
+
+  # === Vault1 ===
+
+  - name: vault
+    domains:
+      - mikewashere.lan
+    host: vault1
+    target: ingress2
+    type: CNAME
+
+zones:

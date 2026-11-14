@@ -1,0 +1,20 @@
+---
+galaxy_info:
+  namespace: mookeyj
+  role_name: generic_os_facts_test
+  author: MookeyJ
+  description: Provides information about target system.
+  license: MIT
+  min_ansible_version: '2.13'
+
+  platforms:
+    - name: Debian
+      versions: [bullseye, bookworm]
+    - name: Ubuntu
+      version: [focal, jammy, noble]
+    - name: EL
+      versions: ['8', '9']
+    - name: Alpine
+      versions: [all]
+
+dependencies: []

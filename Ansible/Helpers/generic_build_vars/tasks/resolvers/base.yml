@@ -1,0 +1,135 @@
+---
+- name: Resolver engine (object or map)
+  no_log: true
+  vars:
+    # =========================
+    # Internal resolved config
+    # =========================
+    _r_name: "{{ resolver_name | default('resolver') }}"
+    _r_mode: "{{ resolver_mode | default('object') | string | lower }}"   # object | map
+
+    _r_input_object: "{{ resolver_input_object | default({}) }}"
+    _r_input_map: "{{ resolver_input_map | default({}) }}"
+
+    _r_schema: "{{ resolver_schema | default({}) }}"
+    _r_item_schema: "{{ resolver_item_schema | default({}) }}"
+
+    # Lowest-priority defaults (optional)
+    _r_defaults: "{{ resolver_defaults | default({}) }}"
+    _r_item_defaults: "{{ resolver_item_defaults | default({}) }}"
+
+    _r_vault_mount: "{{ resolver_vault_mount | default(generic_build_vars_vault_mount) }}"
+    _r_vault_key: "{{ resolver_vault_key | default('') }}"
+    _r_vault_item_prefix: "{{ resolver_vault_item_prefix | default('') }}"
+    _r_vault_list_first: "{{ resolver_vault_list_first | default(false) }}"
+    _r_vault_list_path: "{{ resolver_vault_list_path | default('') }}"
+
+    # map key strategy: user_only | vault_if_empty | union
+    _r_map_key_strategy: "{{ resolver_map_key_strategy | default('vault_if_empty') }}"
+
+    _r_trim_user_values: "{{ resolver_trim_user_values | default(false) }}"
+    _r_allow_unknown_input_keys: "{{ resolver_allow_unknown_input_keys | default(false) }}"
+    _r_allow_unknown_item_fields: "{{ resolver_allow_unknown_item_fields | default(false) }}"
+
+    _r_enable_asserts: "{{ resolver_enable_asserts | default(true) }}"
+    _r_asserts_object: "{{ resolver_asserts_object | default({}) }}"
+    _r_asserts_item: "{{ resolver_asserts_item | default({}) }}"
+
+    # NOTE: Keep this for concrete types only. "iterable" is handled specially below.
+    _r_type_aliases: >-
+      {{
+        resolver_type_aliases | default({
+          'string': 'str',
+          'mapping': 'dict',
+          'list': 'list',
+          'boolean': 'bool',
+          'integer': 'int',
+          'float': 'float'
+        })
+      }}
+
+    # Optional per-field transforms
+    _r_transforms_object: "{{ resolver_transforms_object | default({}) }}"
+    _r_transforms_item: "{{ resolver_transforms_item | default({}) }}"
+
+  block:
+    - name: Resolve via mode-specific resolver
+      ansible.builtin.include_tasks: "resolvers/_resolve_{{ _r_mode }}.yml"
+
+    - name: Verify resolved output exists (optional)
+      ansible.builtin.assert:
+        that:
+          - _resolved is mapping
+        fail_msg: "Resolver '{{ _r_name }}' did not produce valid output!"
+      when: _r_enable_asserts | bool
+
+    - name: Verify object fields (optional)
+      ansible.builtin.assert:
+        that:
+          - _resolved[item.key] is defined
+          - >
+            (
+              item.value == 'iterable'
+              and (_resolved[item.key] is sequence)
+              and (_resolved[item.key] is not string)
+            )
+            or
+            (
+              item.value == 'number'
+              and (_resolved[item.key] | type_debug) in ['int','float']
+            )
+            or
+            (
+              item.value not in ['number','iterable']
+              and (_resolved[item.key] | type_debug)
+                  == (_r_type_aliases.get(item.value, item.value))
+            )
+        fail_msg: >-
+          Field '{{ item.key }}' expected type '{{ item.value }}'
+          but got '{% if _resolved[item.key] is defined %}{{ _resolved[item.key] | type_debug }}{% else %}undefined{% endif %}'
+      loop: "{{ (_r_asserts_object | default({})) | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      when:
+        - _r_enable_asserts | bool
+        - (_r_mode | lower) == 'object'
+
+    - name: Verify map item fields (optional)
+      ansible.builtin.assert:
+        that:
+          - _resolved[item.0] is mapping
+          - _resolved[item.0][item.1.key] is defined
+          - >
+            (
+              item.1.value == 'iterable'
+              and (_resolved[item.0][item.1.key] is sequence)
+              and (_resolved[item.0][item.1.key] is not string)
+            )
+            or
+            (
+              item.1.value == 'number'
+              and (_resolved[item.0][item.1.key] | type_debug) in ['int','float']
+            )
+            or
+            (
+              item.1.value not in ['number','iterable']
+              and (_resolved[item.0][item.1.key] | type_debug)
+                  == (_r_type_aliases.get(item.1.value, item.1.value))
+            )
+        fail_msg: >-
+          Item '{{ item.0 }}' field '{{ item.1.key }}' expected type '{{ item.1.value }}'
+          but got '{% if _resolved[item.0][item.1.key] is defined %}{{ _resolved[item.0][item.1.key] | type_debug }}{% else %}undefined{% endif %}'
+      loop: "{{ _resolved.keys() | list | product(((_r_asserts_item | default({})) | dict2items)) | list }}"
+      loop_control:
+        label: "{{ item.0 }}.{{ item.1.key }}"
+      when:
+        - _r_enable_asserts | bool
+        - (_r_mode | lower) == 'map'
+
+    - name: Merge resolved output into return
+      ansible.builtin.set_fact:
+        generic_build_vars_return: >-
+          {{
+            (generic_build_vars_return | default({}))
+            | combine({ _r_name: _resolved }, recursive=True)
+          }}

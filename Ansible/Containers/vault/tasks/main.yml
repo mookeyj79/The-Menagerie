@@ -1,0 +1,68 @@
+---
+- name: Vault Preparation
+  become: true
+  block:
+    - name: Create Vault User
+      ansible.builtin.include_role:
+        name: linux_manage_accounts
+      vars:
+        linux_manage_accounts_users:
+          - name: vault
+            comment: Vault User
+            shell: /sbin/nologin
+            create_home: false
+            uid: 2008
+            append: false
+
+    - name: Check if Docker is installed
+      ansible.builtin.include_role:
+        name: generic_check_docker
+
+    - name: Create Vault directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: vault
+        group: docker
+        mode: "0750"
+      loop:
+        - "{{ apps_dir }}"
+        - "{{ apps_dir }}/vault"
+        - "{{ apps_dir }}/vault/certs"
+        - "{{ apps_dir }}/vault/config"
+        - "{{ apps_dir }}/vault/data"
+        - "{{ apps_dir }}/vault/logs"
+        - "{{ apps_dir }}/vault/secrets"
+
+    - name: Check if Vault config already exists
+      ansible.builtin.stat:
+        path: "{{ apps_dir }}/vault/config/vault.hcl"
+      register: vault_conf
+
+    - name: Copy Vault config file
+      ansible.builtin.template:
+        src: "{{ role_path }}/templates/vault.hcl.j2"
+        dest: "{{ apps_dir }}/vault/config/vault.hcl"
+        owner: vault
+        group: docker
+        mode: "0640"
+      when: not vault_conf.stat.exists
+
+    - name: Create secret files
+      no_log: true
+      ansible.builtin.copy:
+        dest: "{{ apps_dir }}/vault/secrets/{{ item.dest }}"
+        content: "{{ item.content }}"
+        owner: vault
+        group: docker
+        mode: "0600"
+      loop:
+        - dest: "aws_config"
+          content: |
+            [profile vault]
+            region = {{ aws.region }}
+        - dest: "aws_credentials"
+          content: |
+            [vault]
+            aws_access_key_id = {{ aws.access_id }}
+            aws_secret_access_key = {{ aws.secret_key }}

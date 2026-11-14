@@ -1,0 +1,8 @@
+---
+linux_update_system_update_cache: true
+linux_update_system_full_upgrade: true
+linux_update_system_auto_remove: true
+linux_update_system_clean_cache: true
+
+# Cache validity for apt (in seconds)
+linux_update_system_apt_cache_valid_time: 3600

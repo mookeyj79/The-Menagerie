@@ -1,0 +1,10 @@
+---
+- name: Install required packages - Alpine
+  become: true
+  community.general.apk:
+    name:
+      - rsync
+      - cron
+      - openssh-client
+    state: present
+    update_cache: true

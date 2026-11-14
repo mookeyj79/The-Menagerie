@@ -1,0 +1,94 @@
+---
+- name: Install custom shell
+  vars:
+    group: "{{ generic_build_vars_return.primary_user.group }}"
+    home: "{{ generic_build_vars_return.primary_user.home }}"
+    username: "{{ generic_build_vars_return.primary_user.username }}"
+
+  block:
+    # Oh-My-ZSH
+    - name: Set Primary Users default shell to ZSH
+      ansible.builtin.user:
+        name: "{{ username }}"
+        shell: /usr/bin/zsh
+
+    - name: Remove old '.oh-my-zsh' folder
+      ansible.builtin.file:
+        path: "{{ home }}/.oh-my-zsh"
+        state: absent
+
+    - name: Install Oh My Zsh for Primary User
+      ansible.builtin.git:
+        repo: https://github.com/ohmyzsh/ohmyzsh.git
+        dest: "{{ home }}/.oh-my-zsh"
+        update: true
+        version: master
+
+    - name: Install Oh-My-ZSH plugins
+      ansible.builtin.git:
+        repo: "{{ git.repo }}"
+        dest: "{{ home }}/.oh-my-zsh/custom/plugins/{{ git.name }}"
+        update: false
+        version: master
+      loop:
+        - name: autoupdate
+          repo: https://github.com/tamcore/autoupdate-oh-my-zsh-plugins.git
+        - name: zsh-autosuggestions
+          repo: https://github.com/zsh-users/zsh-autosuggestions.git
+        - name: zsh-completions
+          repo: https://github.com/zsh-users/zsh-completions.git
+        - name: zsh-syntax-highlighting
+          repo: https://github.com/zsh-users/zsh-syntax-highlighting.git
+        - name: zsh-you-should-use
+          repo: https://github.com/MichaelAquilina/zsh-you-should-use.git
+      loop_control:
+        loop_label: "{{ git.name }}"
+        loop_var: "{{ git }}"
+
+    - name: Fix Permissions of '.oh-my-zsh'
+      ansible.builtin.file:
+        path: "{{ home }}/.oh-my-zsh"
+        state: directory
+        recurse: true
+        owner: "{{ username }}"
+        group: "{{ group }}"
+
+    # Configs
+    - name: Copy Configuration Files
+      ansible.builtin.copy:
+        src: "{{ role_path }}/files/{{ file.src }}"
+        dest: "{{ home }}/{{ file.dest }}"
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0644"
+      loop:
+        - { src: nanorc, dest: .nanorc}
+        - { src: screenrc, dest: .screenrc}
+        - { src: zsh/, dest: .zsh/}
+      loop_control:
+        loop_label: "{{ file.dest }}"
+        loop_var: file
+
+    - name: Copy Configuration Templates
+      ansible.builtin.template:
+        src: "{{ role_path }}/templates/{{ file.src }}"
+        dest: "{{ home }}/{{ file.dest }}"
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0644"
+      loop:
+        - { src: "zshrc.j2", dest: ".zshrc"}
+        - { src: "starship.toml.j2", dest: ".config/starship.toml"}
+      loop_control:
+        loop_label: "{{ file.dest }}"
+        loop_var: file
+
+    - name: Fix file permissions
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: "{{ item.state }}"
+        mode: "{{ item.mode }}"
+      with_items:
+        - path: "{{ home }}/.config/bat/init-bat-cache.sh"
+          state: file
+          mode: "0755"

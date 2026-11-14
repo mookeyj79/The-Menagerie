@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+
+set -e
+source /opt/scripts/libs/colors.shlib
+
+print_help() {
+    cat <<EOF
+Usage: docker-shell <container-name>
+
+Drops you into an interactive shell inside a Docker container
+
+Options:
+    help      Show this help screen
+EOF
+}
+
+enter_shell() {
+    local container="$1"
+shells=(
+    /bin/bash
+    /bin/zsh
+    /bin/ash
+    /bin/dash
+    /bin/sh
+    /bin/fish
+    /bin/csh
+    /bin/tcsh
+)
+
+    for shell in "${shells[@]}"; do
+        if docker exec "$container" test -x "$shell"; then
+            printf "${GREEN}[*]${RESET} Found shell: $shell\n"
+            printf "${GREEN}[*]${RESET} Entering container: $container\n"
+            docker exec -it "$container" "$shell"
+            return
+        fi
+    done
+
+    printf "${RED}[!]${RESET} No known shell found in container: $container\n"
+    exit 1
+}
+
+# --- Entry point ---
+if [[ "$1" == "help" || -z "$1" ]]; then
+    print_help
+    exit 0
+fi
+
+container="$1"
+if ! docker ps --format '{{.Names}}' | grep -wq "$container"; then
+    printf "${RED}[!]${RESET} Container '$container' not running or doesn't exist.\n"
+    exit 1
+fi
+
+enter_shell "$container"

@@ -1,0 +1,10 @@
+---
+- name: Install required packages - Debian
+  become: true
+  ansible.builtin.apt:
+    name:
+      - rsync
+      - cron
+      - openssh-client
+    state: present
+    update_cache: true

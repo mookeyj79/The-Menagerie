@@ -1,0 +1,47 @@
+# Start screen with visual bells (no beeping)
+vbell on
+
+# Disable startup message
+startup_message off
+
+# Allow scrollback buffer
+defscrollback 10000
+
+# Enable mouse support (limited, but helps)
+mousetrack on
+
+# Enable logging if needed (commented out by default)
+# log on
+# logfile ~/screenlog.%n
+
+# Set default shell (optional)
+# shell /bin/bash
+
+# Automatically name windows by running command
+autoname on
+
+# Show the window list in the status bar (like tmux)
+caption always
+caption string "%{= kW}%-w%{= kG}%n %t%{-}%+w"
+
+# Status bar at bottom
+hardstatus alwayslastline
+hardstatus string "%{= kG}[ %H ] %{= kw}%-Lw%{= kW}%50>%n*%t%{-}%+Lw %{= kG}%=%Y-%m-%d %c"
+
+# Easier screen splitting (Ctrl-A | or Ctrl-A -)
+bind | split -v
+bind - split -h
+bind h focus
+bind l focus
+
+# Allow using Page Up/Page Down for scrollback
+termcapinfo xterm* ti@:te@
+
+# Use UTF-8 (if your terminal supports it)
+defutf8 on
+
+# Prevent screen from "blinking" on startup
+altscreen on
+
+# Enable copy-paste mode with vi-style bindings
+# (press Ctrl-A [ to enter copy mode)

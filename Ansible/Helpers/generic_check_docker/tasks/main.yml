@@ -1,0 +1,10 @@
+---
+- name: Check if Docker is installed
+  ansible.builtin.command: docker --version
+  register: docker_version_check
+  ignore_errors: true
+  changed_when: false
+
+- name: Set Docker installed fact
+  ansible.builtin.set_fact:
+    generic_check_docker: "{{ docker_version_check.rc == 0 }}"

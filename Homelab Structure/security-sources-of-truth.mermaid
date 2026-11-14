@@ -1,0 +1,29 @@
+flowchart TB
+    subgraph L0["Layer 0 — Inventory (existing, authored by hand)"]
+        systems["systems.yml<br/>every host/device"]
+        vlans["vlans.yml<br/>every network segment"]
+    end
+
+    subgraph L1["Layer 1 — Security policy (new, authored by hand)"]
+        groups["fw_groups.yml<br/>MEMBERSHIP<br/>what does this name refer to?"]
+        rules["fw_rules.yml<br/>NETWORK POLICY<br/>can this reach that, and how?"]
+        bastion["bastion_access.yml<br/>IDENTITY POLICY<br/>which human may reach what?"]
+        proxy["proxy_allowlist.yml<br/>APPLICATION POLICY<br/>which domains, once connected?"]
+    end
+
+    subgraph L2["Layer 2 — Rendered artifacts (generated, never hand-edited)"]
+        rsc["Router1/Router2<br/>.rsc filter chains"]
+        ios["Router3<br/>.ios ACLs"]
+        authelia["Authelia<br/>access-control policy"]
+        squidconf["bastion1 proxy<br/>ACL config"]
+    end
+
+    systems --> groups
+    vlans --> groups
+    groups --> rules
+    groups --> bastion
+    groups --> proxy
+    rules --> rsc
+    rules --> ios
+    bastion --> authelia
+    proxy --> squidconf

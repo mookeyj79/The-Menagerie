@@ -1,0 +1,12 @@
+set -g @catppuccin_flavor '{{ theme }}'
+
+run ~/.config/tmux/plugins/catppuccin/tmux/catppuccin.tmux
+bind r source-file ~/.tmux.conf \; display-message "tmux.conf reloaded"
+
+# Make the status line more pleasant.
+set -g status-left ""
+set -g status-right '#[fg=#{@thm_crust},bg=#{@thm_teal}] session: #S '
+
+# Ensure that everything on the right side of the status line
+# is included.
+set -g status-right-length 100

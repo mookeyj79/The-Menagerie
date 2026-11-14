@@ -1,0 +1,7 @@
+---
+linux_setup_environment_install_catppuccin: true
+linux_setup_environment_install_catppuccin_color: mauve
+linux_setup_environment_install_catppuccin_theme: macchiato
+linux_setup_environment_install_grub: false
+linux_setup_environment_install_motd: true
+linux_setup_environment_install_pyenv: true

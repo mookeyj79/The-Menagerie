@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+set -e
+
+echo "[lego] Post-hook triggered — syncing certs"
+
+RSYNC_OPTS="-az --delete"
+
+# External certs
+rsync $RSYNC_OPTS /certs/external/ traefik-primary-1:/certs/external/
+rsync $RSYNC_OPTS /certs/external/ traefik-primary-2:/certs/external/
+
+# Internal certs
+rsync $RSYNC_OPTS /certs/internal/ traefik-primary-1:/certs/internal/
+rsync $RSYNC_OPTS /certs/internal/ traefik-primary-2:/certs/internal/
+
+echo "[lego] Certificate sync complete"

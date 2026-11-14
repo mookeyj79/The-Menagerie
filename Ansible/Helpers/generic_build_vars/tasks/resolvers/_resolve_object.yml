@@ -1,0 +1,9 @@
+---
+- name: Render object resolver JSON
+  ansible.builtin.set_fact:
+    _resolved_json: >-
+      {{ lookup('ansible.builtin.template', 'generic_build_vars/resolver_object.json.j2') }}
+
+- name: Parse object resolver JSON
+  ansible.builtin.set_fact:
+    _resolved: "{{ _resolved_json | from_json }}"

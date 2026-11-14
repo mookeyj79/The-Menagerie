@@ -1,0 +1,314 @@
+---
+### Setup ###
+- name: Ensure ~/.zsh exists
+  ansible.builtin.file:
+    path: "{{ home }}/.zsh"
+    state: directory
+    owner: "{{ username }}"
+    group: "{{ group }}"
+    mode: "0755"
+
+- name: Ensure sources.zsh exists
+  ansible.builtin.file:
+    path: "{{ home }}/.zsh/sources.zsh"
+    state: touch
+    owner: "{{ username }}"
+    group: "{{ group }}"
+    mode: "0644"
+
+### Bat ###
+- name: Catppuccin - Bat
+  vars:
+    group: "{{ generic_build_vars_return.primary_user.group }}"
+    home: "{{ generic_build_vars_return.primary_user.home }}"
+    username: "{{ generic_build_vars_return.primary_user.username }}"
+    theme: "{{ linux_setup_environment_install_catppuccin_theme | capitalize }}"
+
+  block:
+    - name: Ensure Bat themes folder exists
+      ansible.builtin.file:
+        path: "{{ home }}/.config/bat/themes"
+        state: directory
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0755"
+
+    - name: Download Bat theme files
+      ansible.builtin.get_url:
+        url: "https://github.com/catppuccin/bat/raw/main/themes/{{ theme_file.url }}"
+        dest: "{{ home }}/.config/bat/themes/{{ theme_file.dest }}"
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0644"
+      loop:
+        - dest: Catppuccin Latte.tmTheme
+          url: Catppuccin%20Latte.tmTheme
+        - dest: Catppuccin Frappe.tmTheme
+          url: Catppuccin%20Frappe.tmTheme
+        - dest: Catppuccin Macchiato.tmTheme
+          url: Catppuccin%20Macchiato.tmTheme
+        - dest: Catppuccin Mocha.tmTheme
+          url: Catppuccin%20Mocha.tmTheme
+      loop_control:
+        loop_label: "{{ theme_file.dest }}"
+        loop_var: theme_file
+
+    - name: Copy Bat configuration file
+      ansible.builtin.template:
+        src: "{{ role_path }}/templates/catppuccin/bat/config/config.j2"
+        dest: "{{ home }}/.config/bat/config"
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0644"
+
+    - name: Copy Bat configuration script
+      ansible.builtin.copy:
+        src: "{{ role_path }}/files/catppuccin/bat/config/init-bat-cache.sh"
+        dest: "{{ home }}/.config/bat/init-bat-cache.sh"
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0755"
+
+    - name: Add Bat script to 'sources.zsh'
+      ansible.builtin.lineinfile:
+        path: "{{ home }}/.zsh/sources.zsh"
+        line: '[[ -f "$HOME/.config/bat/init-bat-cache.sh" ]] && "$HOME/.config/bat/init-bat-cache.sh"'
+        regexp: '^\[\[ -f "\$HOME\/\.config\/bat\/init-bat-cache\.sh" \]\] && "\$HOME\/\.config\/bat\/init-bat-cache\.sh"$'
+
+### Btop++ ###
+- name: Catppuccin - Btop++
+  vars:
+    group: "{{ generic_build_vars_return.primary_user.group }}"
+    home: "{{ generic_build_vars_return.primary_user.home }}"
+    username: "{{ generic_build_vars_return.primary_user.username }}"
+    theme: "{{ linux_setup_environment_install_catppuccin_theme | lower }}"
+
+  block:
+    - name: Ensure Btop++ themes folder exists
+      ansible.builtin.file:
+        path: "{{ home }}/.config/btop/themes"
+        state: directory
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0755"
+
+    - name: Download Btop++ theme files
+      ansible.builtin.get_url:
+        url: "https://github.com/catppuccin/btop/raw/main/themes/{{ theme_file }}"
+        dest: "{{ home }}/.config/btop/themes/{{ theme_file }}"
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0644"
+      loop:
+        - catppuccin_frappe.theme
+        - catppuccin_latte.theme
+        - catppuccin_macchiato.theme
+        - catppuccin_mocha.theme
+      loop_control:
+        loop_label: "{{ theme_file }}"
+        loop_var: theme_file
+
+    - name: Copy Btop++ configuration file
+      ansible.builtin.template:
+        src: "{{ role_path }}/templates/catppuccin/btop/btop.conf.j2"
+        dest: "{{ home }}/.config/btop/btop.conf"
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0644"
+
+### eza ###
+- name: Catppuccin - eza
+  vars:
+    color: "{{ linux_setup_environment_install_catppuccin_color | lower }}"
+    group: "{{ generic_build_vars_return.primary_user.group }}"
+    home: "{{ generic_build_vars_return.primary_user.home }}"
+    username: "{{ generic_build_vars_return.primary_user.username }}"
+    theme: "{{ linux_setup_environment_install_catppuccin_theme | lower }}"
+
+  block:
+    - name: Ensure eza configuration folder exists
+      ansible.builtin.file:
+        path: "{{ home }}/.config/eza"
+        state: directory
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0755"
+
+    - name: Download eza theme file
+      ansible.builtin.get_url:
+        url: "https://github.com/catppuccin/eza/raw/main/themes/{{ theme }}/catppuccin-{{ theme }}-{{ color }}.yml"
+        dest: "{{ home }}/.config/eza/theme.yml"
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0644"
+
+### Fastfetch ###
+- name: Catppuccin - Fastfetch
+  vars:
+    group: "{{ generic_build_vars_return.primary_user.group }}"
+    home: "{{ generic_build_vars_return.primary_user.home }}"
+    username: "{{ generic_build_vars_return.primary_user.username }}"
+    theme: "{{ linux_setup_environment_install_catppuccin_theme | lower }}"
+
+  block:
+    - name: Ensure Fastfetch configuration folder exists
+      ansible.builtin.file:
+        path: "{{ home }}/.config/fastfetch"
+        state: directory
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0755"
+
+    - name: Copy Fastfetch configuration file
+      ansible.builtin.template:
+        src: "{{ role_path }}/templates/catppuccin/fastfetch/config.jsonc.j2"
+        dest: "{{ home }}/.config/fastfetch/config.jsonc"
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0644"
+
+### fzf ###
+- name: Catppuccin - fzf
+  vars:
+    group: "{{ generic_build_vars_return.primary_user.group }}"
+    home: "{{ generic_build_vars_return.primary_user.home }}"
+    username: "{{ generic_build_vars_return.primary_user.username }}"
+    theme: "{{ linux_setup_environment_install_catppuccin_theme | lower }}"
+
+  block:
+    - name: Download fzf theme script
+      ansible.builtin.get_url:
+        url: "https://github.com/catppuccin/fzf/raw/main/themes/catppuccin-fzf-{{ theme }}.sh"
+        dest: "{{ home }}/.zsh/fzf.sh"
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0644"
+
+    - name: Add fzf script to 'sources.zsh'
+      ansible.builtin.lineinfile:
+        path: "{{ home }}/.zsh/sources.zsh"
+        line: '[[ -f "$HOME/.zsh/fzf.sh" ]] && source "$HOME/.zsh/fzf.sh"'
+        regexp: '^\[\[ -f "\$HOME\/\.zsh\/fzf\.sh" \]\] && source "\$HOME\/\.zsh\/fzf\.sh"$'
+
+### Helix ###
+- name: Catppuccin - Helix
+  vars:
+    group: "{{ generic_build_vars_return.primary_user.group }}"
+    home: "{{ generic_build_vars_return.primary_user.home }}"
+    username: "{{ generic_build_vars_return.primary_user.username }}"
+    theme: "{{ linux_setup_environment_install_catppuccin_theme | lower }}"
+
+  block:
+    - name: Ensure Helix themes folder exists
+      ansible.builtin.file:
+        path: "{{ home }}/.config/helix/themes"
+        state: directory
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0755"
+
+    - name: Download Helix theme files
+      ansible.builtin.get_url:
+        url: "https://github.com/catppuccin/helix/raw/main/themes/default/{{ theme_file }}"
+        dest: "{{ home }}/.config/helix/themes/{{ theme_file }}"
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0644"
+      loop:
+        - catppuccin_frappe.toml
+        - catppuccin_latte.toml
+        - catppuccin_macchiato.toml
+        - catppuccin_mocha.toml
+      loop_control:
+        loop_label: "{{ theme_file }}"
+        loop_var: theme_file
+
+    - name: Copy Helix configuration file
+      ansible.builtin.template:
+        src: "{{ role_path }}/templates/catppuccin/helix/config.toml.j2"
+        dest: "{{ home }}/.config/helix/config.toml"
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0644"
+
+### Tmux ###
+- name: Catppuccin - Tmux
+  vars:
+    group: "{{ generic_build_vars_return.primary_user.group }}"
+    home: "{{ generic_build_vars_return.primary_user.home }}"
+    username: "{{ generic_build_vars_return.primary_user.username }}"
+    theme: "{{ linux_setup_environment_install_catppuccin_theme | lower }}"
+
+  block:
+    - name: Remove old Tmux config
+      ansible.builtin.file:
+        path: "{{ home }}/.config/tmux/plugins/catppuccin/tmux"
+        state: absent
+
+    - name: Install Tmux themes
+      ansible.builtin.git:
+        repo: https://github.com/catppuccin/tmux.git
+        dest: "{{ home }}/.config/tmux/plugins/catppuccin/tmux"
+        update: true
+        version: v2.1.3
+
+    - name: Fix Permissions for Tmux themes
+      ansible.builtin.file:
+        path: "{{ home }}/.config/tmux/plugins/catppuccin/tmux"
+        state: directory
+        recurse: true
+        owner: "{{ username }}"
+        group: "{{ group }}"
+
+    - name: Copy Tmux configuration file
+      ansible.builtin.template:
+        src: "{{ role_path }}/templates/catppuccin/tmux/tmux.conf.j2"
+        dest: "{{ home }}/.tmux.conf"
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0644"
+
+### Vim ###
+- name: Catppuccin - Vim
+  vars:
+    group: "{{ generic_build_vars_return.primary_user.group }}"
+    home: "{{ generic_build_vars_return.primary_user.home }}"
+    username: "{{ generic_build_vars_return.primary_user.username }}"
+    theme: "{{ linux_setup_environment_install_catppuccin_theme | lower }}"
+
+  block:
+    - name: Remove old Vim config
+      ansible.builtin.file:
+        path: "{{ home }}/.vim"
+        state: absent
+
+    - name: Copy Vim configuration file
+      ansible.builtin.template:
+        src: "{{ role_path }}/templates/catppuccin/vim/vimrc.j2"
+        dest: "{{ home }}/.vimrc"
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0644"
+
+### zsh-syntax-highlighting ###
+- name: Catppuccin - zsh-syntax-highlighting
+  vars:
+    group: "{{ generic_build_vars_return.primary_user.group }}"
+    home: "{{ generic_build_vars_return.primary_user.home }}"
+    username: "{{ generic_build_vars_return.primary_user.username }}"
+    theme: "{{ linux_setup_environment_install_catppuccin_theme | lower }}"
+
+  block:
+    - name: Download zsh-syntax-highlighting theme script
+      ansible.builtin.get_url:
+        url: "https://github.com/catppuccin/zsh-syntax-highlighting/raw/main/themes/catppuccin_{{ theme }}-zsh-syntax-highlighting.zsh"
+        dest: "{{ home }}/.zsh/zsh-syntax-highlighting.zsh"
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: "0644"
+
+    - name: Add zsh-syntax-highlighting script to 'sources.zsh'
+      ansible.builtin.lineinfile:
+        path: "{{ home }}/.zsh/sources.zsh"
+        line: '[[ -f "$HOME/.zsh/zsh-syntax-highlighting.zsh" ]] && source "$HOME/.zsh/zsh-syntax-highlighting.zsh"'
+        regexp: '^\[\[ -f "\$HOME\/\.zsh\/zsh-syntax-highlighting\.zsh" \]\] && source "\$HOME\/\.zsh\/zsh-syntax-highlighting\.zsh"$'

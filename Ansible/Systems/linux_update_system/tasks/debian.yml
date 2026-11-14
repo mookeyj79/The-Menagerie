@@ -1,0 +1,26 @@
+---
+- name: "Update system - Debian"
+  become: true
+  block:
+    - name: Update repository cache
+      ansible.builtin.apt:
+        update_cache: "{{ linux_update_system_update_cache }}"
+        cache_valid_time: "{{ linux_update_system_apt_cache_valid_time }}"
+      when: linux_update_system_update_cache
+
+    - name: Upgrade packages
+      ansible.builtin.apt:
+        upgrade: full
+        force_apt_get: true
+      when: linux_update_system_full_upgrade
+
+    - name: Remove unused packages
+      ansible.builtin.apt:
+        autoremove: true
+        purge: true
+      when: linux_update_system_auto_remove
+
+    - name: Clean APT caches
+      ansible.builtin.apt:
+        autoclean: true
+      when: linux_update_system_clean_cache

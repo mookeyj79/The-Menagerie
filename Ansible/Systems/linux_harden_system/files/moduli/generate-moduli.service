@@ -1,0 +1,10 @@
+[Unit]
+Description=Generate SSH moduli
+After=network.target
+
+[Service]
+ExecStart=/opt/scripts/hardening/ssh/generate_moduli.sh
+Type=oneshot
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=10

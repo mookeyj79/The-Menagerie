@@ -1,0 +1,14 @@
+---
+- name: Install Docker - Alpine
+  become: true
+  block:
+    - name: Install Docker
+      community.general.apk:
+        name:
+          - docker
+          - docker-cli
+          - containerd
+          - docker-cli-buildx
+          - docker-cli-compose
+        state: present
+        update_cache: true

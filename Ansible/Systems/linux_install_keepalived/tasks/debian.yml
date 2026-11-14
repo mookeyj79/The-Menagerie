@@ -1,0 +1,9 @@
+---
+- name: Install required packages - Debian
+  become: true
+  ansible.builtin.apt:
+    name:
+      - keepalived
+      - libipset13
+    state: present
+    update_cache: true

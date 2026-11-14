@@ -1,0 +1,16 @@
+---
+- name: Ensure return var exists
+  ansible.builtin.set_fact:
+    generic_build_vars_return: "{{ generic_build_vars_return | default({}) }}"
+
+- name: Run requested VAR resolvers
+  ansible.builtin.include_tasks: "resolvers/{{ resolver }}.yml"
+  loop: "{{ generic_build_vars_request | default([]) }}"
+  loop_control:
+    loop_var: resolver
+    label: "{{ resolver }}"
+
+- name: DEBUG - 'generic_build_vars'
+  ansible.builtin.debug:
+    msg: "{{ generic_build_vars_return }}"
+  when: generic_build_vars_debug

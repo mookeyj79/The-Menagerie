@@ -1,0 +1,144 @@
+---
+- name: Install MOTD
+  vars:
+    group: "{{ generic_build_vars_return.primary_user.group }}"
+    username: "{{ generic_build_vars_return.primary_user.username }}"
+
+  block:
+    - name: Remove old MOTD folder
+      ansible.builtin.file:
+        path: /opt/motd
+        state: absent
+
+    - name: Clone Cloudbox-MOTD repository
+      ansible.builtin.git:
+        repo: "https://github.com/mookeyj79/Media-Server-MOTD.git"
+        dest: /opt/motd
+        update: true
+        version: master
+
+    - name: Fix '/opt/motd' permissions
+      ansible.builtin.file:
+        path: /opt/motd
+        state: directory
+        mode: '0755'
+        owner: "{{ username }}"
+        group: "{{ group }}"
+
+    - name: Install Python requirements
+      ansible.builtin.pip:
+        requirements: /opt/motd/requirements.txt
+        executable: pip3
+        break_system_packages: true
+
+    - name: Remove existing MOTD locations
+      ansible.builtin.file:
+        path: "{{ dir_path }}"
+        state: absent
+      loop:
+        - /etc/update-motd.d
+        - /etc/motd
+        - /etc/motd.dynamic
+      loop_control:
+        loop_label: "{{ dir_path }}"
+        loop_var: dir_path
+
+    - name: Determine if 'motd-news' exists
+      ansible.builtin.stat:
+        path: /etc/default/motd-news
+      register: motd_news_file
+
+    - name: Disable motd-news
+      ansible.builtin.replace:
+        path: /etc/default/motd-news
+        regexp: '^ENABLED=1'
+        replace: 'ENABLED=0'
+      when: motd_news_file.stat.exists
+
+    - name: Create '/etc/update-motd.d' directory
+      ansible.builtin.file:
+        path: /etc/update-motd.d
+        state: directory
+        mode: '0755'
+
+    - name: Ensure /etc/motd exists
+      ansible.builtin.file:
+        path: /etc/motd
+        state: touch
+        mode: '0644'
+
+    - name: Fix ownership of MOTD locations
+      ansible.builtin.file:
+        path: "{{ item }}"
+        owner: "{{ username }}"
+        group: "{{ group }}"
+      loop:
+        - /etc/update-motd.d
+        - /etc/motd
+      loop_control:
+        loop_label: "{{ dir_path }}"
+        loop_var: dir_path
+
+    - name: Create 'activity.log'
+      ansible.builtin.file:
+        path: /opt/motd/activity.log
+        state: touch
+        mode: '0644'
+        owner: "{{ username }}"
+        group: "{{ group }}"
+
+    - name: Ensure MOTD scripts are executable
+      ansible.builtin.file:
+        path: /opt/motd/motd
+        state: directory
+        mode: '0755'
+        recurse: true
+
+    - name: Fix 'colors.txt' permissions
+      ansible.builtin.file:
+        path: /opt/motd/motd/colors.txt
+        state: file
+        mode: '0644'
+
+    - name: Determine MOTD files
+      ansible.builtin.find:
+        paths: /opt/motd/motd
+        file_type: file
+      register: motd_found
+
+    - name: Link MOTD files
+      ansible.builtin.file:
+        src: "{{ file.path }}"
+        dest: "/etc/update-motd.d/{{ file.filename }}"
+        state: link
+        force: true
+      loop: "{{ motd_found.files }}"
+      loop_control:
+        loop_label: "{{ file.filename }}"
+        loop_var: file
+
+    - name: Set 'PrintLastLog' in 'sshd_config'
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^(#\s*)?PrintLastLog\s+'
+        line: 'PrintLastLog no'
+        create: false
+        backrefs: false
+      when: ansible_facts['os_family'] is defined
+      failed_when: false
+
+    - name: Copy default 'config.json'
+      ansible.builtin.copy:
+        remote_src: true
+        src: /opt/motd/config.json.example
+        dest: /opt/motd/config.json
+        mode: '0644'
+        owner: "{{ username }}"
+        group: "{{ group }}"
+
+    - name: Update MOTD config.json
+      ansible.builtin.lineinfile:
+        path: /opt/motd/config.json
+        regexp: '"banner_title":\s*".*?"'
+        line: '"banner_title": "{{ inventory_hostname | upper }}",'
+        backrefs: true

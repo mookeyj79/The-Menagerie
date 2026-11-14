@@ -1,0 +1,17 @@
+{# Normalize various hvac/community.hashi_vault return shapes into a plain dict #}
+{% macro kv2_secret(raw) -%}
+  {%- set out = {} -%}
+  {%- if raw is mapping -%}
+    {%- if raw.secret is defined and raw.secret is mapping -%}
+      {%- set out = raw.secret -%}
+    {%- elif raw.data is defined
+          and raw.data is mapping
+          and raw.data.data is defined
+          and raw.data.data is mapping -%}
+      {%- set out = raw.data.data -%}
+    {%- elif raw.data is defined and raw.data is mapping -%}
+      {%- set out = raw.data -%}
+    {%- endif -%}
+  {%- endif -%}
+  {{- out -}}
+{%- endmacro %}

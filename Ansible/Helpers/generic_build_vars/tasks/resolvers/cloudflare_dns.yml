@@ -1,0 +1,48 @@
+---
+- name: Resolve 'cloudflare_dns'
+  vars:
+    resolver_name: "cloudflare_dns"
+    resolver_mode: "map"
+
+    # User input shape:
+    # cloudflare_dns:
+    #   domain1:
+    #     api_token: ...
+    #     zone_id: ...
+    resolver_input_map: "{{ generic_build_vars_inputs.cloudflare_dns | default({}) }}"
+
+    # Output per-item schema (also acts as a documentation “preview”)
+    resolver_item_schema:
+      api_token: ""
+      zone_id: ""
+
+    # Vault configuration
+    resolver_vault_mount: "{{ generic_build_vars_vault_mount }}"   # e.g. "secret"
+
+    # Enable listing keys first so we can return all apps even when user only overrides one
+    resolver_vault_list_first: true
+
+    # IMPORTANT:
+    # vault_list takes a *metadata* path for KV v2 listing.
+    resolver_vault_list_path: >-
+      {{ resolver_vault_mount }}/metadata/external_services/cloudflare/dns
+
+    # Per-key secret fetch prefix for KV2 get (relative to mount)
+    resolver_vault_item_prefix: "external_services/cloudflare/dns/"
+
+    # Key strategy:
+    # - union => keys = user_keys ∪ vault_keys
+    #   (This gives you "return all apps", with user overrides taking precedence)
+    resolver_map_key_strategy: "union"
+
+    # Optional behavior knobs (defaults shown)
+    resolver_trim_user_values: false
+    resolver_allow_unknown_item_fields: false
+
+    # Asserts (optional)
+    resolver_enable_asserts: true
+    resolver_asserts_item:
+      api_token: string
+      zone_id: string
+
+  ansible.builtin.include_tasks: base.yml

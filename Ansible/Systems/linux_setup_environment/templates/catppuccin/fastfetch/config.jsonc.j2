@@ -1,0 +1,144 @@
+{
+  "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+
+  "logo": {
+    "type": "auto",
+    "padding": { "right": 2 },
+    "color": {
+{% if theme == "latte" %}
+      "1": "#1e66f5", // blue
+      "2": "#7287fd", // lavender
+      "3": "#04a5e5", // sky
+      "4": "#179299", // teal
+      "5": "#40a02b", // green
+      "6": "#df8e1d"  // yellow
+{% elif theme == "frappe" %}
+      "1": "#8caaee", // blue
+      "2": "#babbf1", // lavender
+      "3": "#99d1db", // sky
+      "4": "#81c8be", // teal
+      "5": "#a6d189", // green
+      "6": "#e5c890"  // yellow
+{% elif theme == "macchiato" %}
+      "1": "#8aadf4", // blue
+      "2": "#b7bdf8", // lavender
+      "3": "#91d7e3", // sky
+      "4": "#8bd5ca", // teal
+      "5": "#a6da95", // green
+      "6": "#eed49f"  // yellow
+{% else %}
+      "1": "#89b4fa", // blue
+      "2": "#b4befe", // lavender
+      "3": "#89dceb", // sky
+      "4": "#94e2d5", // teal
+      "5": "#a6e3a1", // green
+      "6": "#f9e2af"  // yellow
+{% endif %}
+    }
+  },
+
+  "display": {
+    "separator": " 󰁔 ",
+    "color": {
+{% if theme == "latte" %}
+      "title": "#7287fd",     // lavender
+      "keys": "#1e66f5",      // blue
+      "separator": "#04a5e5", // sky
+      "output": "#4c4f69"     // text
+{% elif theme == "frappe" %}
+      "title": "#babbf1",     // lavender
+      "keys": "#8caaee",      // blue
+      "separator": "#99d1db", // sky
+      "output": "#c6d0f5"     // text
+{% elif theme == "macchiato" %}
+      "title": "#b7bdf8",     // lavender
+      "keys": "#8aadf4",      // blue
+      "separator": "#91d7e3", // sky
+      "output": "#cad3f5"     // text
+{% else %}
+      "title": "#b4befe",     // lavender
+      "keys": "#89b4fa",      // blue
+      "separator": "#89dceb", // sky
+      "output": "#cdd6f4"     // text
+{% endif %}
+    },
+    "key": { "width": 14, "type": "string" },
+    "percent": {
+      "type": 9,
+      "color": {
+{% if theme == "latte" %}
+        "green": "#40a02b",
+        "yellow": "#df8e1d",
+        "red": "#d20f39"
+{% elif theme == "frappe" %}
+        "green": "#a6d189",
+        "yellow": "#e5c890",
+        "red": "#e78284"
+{% elif theme == "macchiato" %}
+        "green": "#a6da95",
+        "yellow": "#eed49f",
+        "red": "#ed8796"
+{% else %}
+        "green": "#a6e3a1",
+        "yellow": "#f9e2af",
+        "red": "#f38ba8"
+{% endif %}
+      }
+    }
+  },
+
+  "modules": [
+    "separator",
+    {
+      "type": "custom",
+      "key": " ",
+      // Green Yellow Overlay2 Blue Mauve Overlay2 Teal Peach
+{% if theme == "latte" %}
+      "format": "{#38;2;64;160;43}Eat{#} {#38;2;223;142;29}{#}  {#38;2;124;127;147}•{#}  {#38;2;30;102;245}Sleep{#} {#38;2;136;57;239}{#}  {#38;2;124;127;147}•{#}  {#38;2;23;146;153}Linux{#} {#38;2;254;100;11}{#}"
+{% elif theme == "frappe" %}
+      "format": "{#38;2;166;209;137}Eat{#} {#38;2;229;200;144}{#}  {#38;2;148;156;187}•{#}  {#38;2;140;170;238}Sleep{#} {#38;2;202;158;230}{#}  {#38;2;148;156;187}•{#}  {#38;2;129;200;190}Linux{#} {#38;2;239;159;118}{#}"
+{% elif theme == "macchiato" %}
+      "format": "{#38;2;166;218;149}Eat{#} {#38;2;238;212;159}{#}  {#38;2;147;154;183}•{#}  {#38;2;138;173;244}Sleep{#} {#38;2;198;160;246}{#}  {#38;2;147;154;183}•{#}  {#38;2;139;213;202}Linux{#} {#38;2;245;169;127}{#}"
+{% else %}
+      "format": "{#38;2;166;227;161}Eat{#} {#38;2;249;226;175}{#}  {#38;2;147;153;178}•{#}  {#38;2;137;180;250}Sleep{#} {#38;2;203;166;247}{#}  {#38;2;147;153;178}•{#}  {#38;2;148;226;213}Linux{#} {#38;2;250;179;135}{#}"
+{% endif %}
+    },
+
+    "separator",
+    "title",
+    "separator",
+
+    { "type": "os", "key": " OS" },
+    { "type": "kernel", "key": " Kernel" },
+    { "type": "uptime", "key": "󰅐 Uptime" },
+    { "type": "packages", "key": "󰊠 Packages" },
+    { "type": "shell", "key": " Shell" },
+    { "type": "terminal", "key": " Terminal" },
+
+    "separator",
+
+    { "type": "cpu", "key": "󰍛 CPU" },
+    { "type": "gpu", "key": "󰘚 GPU" },
+    { "type": "memory", "key": "󰟖 Memory", "percent": { "type": 3 } },
+    { "type": "disk", "key": " Disk", "percent": { "type": 3 } },
+
+    "separator",
+
+    {
+      "type": "custom",
+      "key": " ",
+      // Yellow Red Blue Peach Mauve Green Teal Overlay1
+{% if theme == "latte" %}
+      "format": "{#38;2;223;142;29}󰮯{#}  {#38;2;210;15;57}󰊠{#}  {#38;2;30;102;245}󰊠{#}  {#38;2;254;100;11}󰊠{#}  {#38;2;136;57;239}󰊠{#}  {#38;2;64;160;43}󰊠{#}  {#38;2;23;146;153}󰊠{#}  {#38;2;140;143;161}󰊠{#}"
+{% elif theme == "frappe" %}
+      "format": "{#38;2;229;200;144}󰮯{#}  {#38;2;231;130;132}󰊠{#}  {#38;2;140;170;238}󰊠{#}  {#38;2;239;159;118}󰊠{#}  {#38;2;202;158;230}󰊠{#}  {#38;2;166;209;137}󰊠{#}  {#38;2;129;200;190}󰊠{#}  {#38;2;131;139;167}󰊠{#}"
+{% elif theme == "macchiato" %}
+      "format": "{#38;2;238;212;159}󰮯{#}  {#38;2;237;135;150}󰊠{#}  {#38;2;138;173;244}󰊠{#}  {#38;2;245;169;127}󰊠{#}  {#38;2;198;160;246}󰊠{#}  {#38;2;166;218;149}󰊠{#}  {#38;2;139;213;202}󰊠{#}  {#38;2;147;151;179}󰊠{#}"
+{% else %}
+      "format": "{#38;2;249;226;175}󰮯{#}  {#38;2;243;139;168}󰊠{#}  {#38;2;137;180;250}󰊠{#}  {#38;2;250;179;135}󰊠{#}  {#38;2;203;166;247}󰊠{#}  {#38;2;166;227;161}󰊠{#}  {#38;2;148;226;213}󰊠{#}  {#38;2;127;132;156}󰊠{#}"
+{% endif %}
+    },
+
+    "separator"
+  ]
+}

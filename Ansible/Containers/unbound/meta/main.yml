@@ -1,0 +1,20 @@
+---
+galaxy_info:
+  namespace: mookeyj
+  role_name: unbound
+  author: MookeyJ
+  description: Prepares a 'UnBound' environment.
+  license: MIT
+  min_ansible_version: '2.13'
+
+  platforms:
+    - name: Debian
+      versions: [bookworm, trixie]
+    - name: Ubuntu
+      version: [focal, jammy, noble]
+    - name: EL
+      versions: ['8', '9']
+    - name: Alpine
+      versions: [all]
+
+dependencies: []

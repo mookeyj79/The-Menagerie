@@ -1,0 +1,103 @@
+######################################
+# Ansible: Linux - Setup Environment #
+######################################
+---
+- name: Linux - Setup User Environment
+  become: true
+  vars:
+    group: "{{ generic_build_vars_return.primary_user.group }}"
+    home: "{{ generic_build_vars_return.primary_user.home }}"
+    username: "{{ generic_build_vars_return.primary_user.username }}"
+  block:
+    - name: Ensure this is a Linux system
+      ansible.builtin.assert:
+        that: ansible_facts['system'] == 'Linux'
+        fail_msg: "This role should only run on Linux systems."
+        success_msg: "Confirmed: Linux system."
+
+    - name: Build variables
+      ansible.builtin.include_role:
+        name: generic_build_vars
+      vars:
+        generic_build_vars_request: [primary_user]
+        generic_build_vars_inputs:
+          primary_user: "{{ primary_user | default({}) }}"
+
+    - name: Check if Docker is installed
+      ansible.builtin.include_role:
+        name: generic_check_docker
+
+    - name: Set GRUB installed fact
+      ansible.builtin.stat:
+        path: /boot/grub/grub.cfg
+      register: grub_installed
+
+    - name: Install required packages - Debian
+      ansible.builtin.include_tasks: debian.yml
+      when: ansible_facts["os_family"] == "Debian"
+
+    - name: Install required packages - RedHat
+      ansible.builtin.include_tasks: redhat.yml
+      when: ansible_facts["os_family"] == "RedHat"
+
+    - name: Install required packages - Alpine
+      ansible.builtin.include_tasks: alpine.yml
+      when: ansible_facts["os_family"] == "Alpine"
+
+    - name: Install Shell Environment
+      ansible.builtin.include_tasks: shell.yml
+
+    - name: Modify GRUB
+      ansible.builtin.include_tasks: grub.yml
+      when: grub_installed.stat.exists and linux_setup_environment_install_grub | bool
+
+    - name: Install MOTD Banner
+      ansible.builtin.include_tasks: motd.yml
+      when: linux_setup_environment_install_motd | bool
+
+    - name: Install Pyenv
+      ansible.builtin.include_tasks: pyenv.yml
+      when: linux_setup_environment_install_pyenv | bool
+
+    - name: Install Catppuccin themes
+      ansible.builtin.include_tasks: catppuccin.yml
+      when: linux_setup_environment_install_catppuccin | bool
+
+    - name: Create Utilities directory
+      ansible.builtin.file:
+        path: "{{ home }}/utils"
+        state: directory
+        mode: '0755'
+        owner: "{{ username }}"
+        group: "{{ group }}"
+
+    - name: Copy User Scripts
+      ansible.builtin.copy:
+        src: "{{ role_path }}/files//utils/{{ file }}"
+        dest: "{{ home }}/utils/{{ file }}"
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: '0755'
+      loop:
+        - update
+        - screen-check
+      loop_control:
+        loop_label: "{{ file }}"
+        loop_var: file
+
+    - name: Copy Docker scripts
+      ansible.builtin.copy:
+        src: "{{ role_path }}/files//utils/{{ file }}"
+        dest: "{{ home }}/utils/{{ file }}"
+        owner: "{{ username }}"
+        group: "{{ group }}"
+        mode: '0755'
+      loop:
+        - docker-command
+        - docker-logs
+        - docker-shell
+        - docker-status
+      loop_control:
+        loop_label: "{{ file }}"
+        loop_var: file
+      when: generic_check_docker

@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+
+set -e
+source /opt/scripts/libs/colors.shlib
+
+print_help() {
+    cat <<EOF
+Usage: docker-command <command> [container-name|all]
+
+Commands:
+    help                     Show this help screen
+    start [all|<name>]       Start containers (all not running, or specific)
+    restart [all|<name>]     Restart containers (all running, or specific)
+    stop [all|<name>]        Stop containers (all running, or specific)
+    kill [all|<name>]        Kill containers (all, or specific)
+EOF
+}
+
+start_containers() {
+    if [ "$1" == "all" ] || [ -z "$1" ]; then
+        printf "${GREEN}[*]${RESET} Starting all stopped containers...\n"
+        docker ps -aq -f "status=exited" -f "status=created" | xargs -r docker start
+    else
+        printf "${GREEN}[*]${RESET} Starting container: $1\n"
+        docker start "$1"
+    fi
+}
+
+restart_containers() {
+    if [ "$1" == "all" ] || [ -z "$1" ]; then
+        printf "${YELLOW}[!]${RESET} Restarting all running containers...\n"
+        docker ps -q | xargs -r docker restart
+    else
+        printf "${YELLOW}[!]${RESET} Restarting container: $1\n"
+        docker restart "$1"
+    fi
+}
+
+stop_containers() {
+    if [ "$1" == "all" ] || [ -z "$1" ]; then
+        printf "${RED}[!]${RESET} Stopping all running containers...\n"
+        docker ps -q | xargs -r docker stop
+    else
+        printf "${RED}[!]${RESET} Stopping container: $1\n"
+        docker stop "$1"
+    fi
+}
+
+kill_containers() {
+    if [ "$1" == "all" ] || [ -z "$1" ]; then
+        printf "${RED}[X]${RESET} Killing all containers...\n"
+        docker ps -q | xargs -r docker kill
+    else
+        printf "${RED}[X]${RESET} Killing container: $1\n"
+        docker kill "$1"
+    fi
+}
+
+# --- Entry point ---
+CMD="$1"
+TARGET="$2"
+
+case "$CMD" in
+    help|"")
+        print_help
+        ;;
+    start)
+        start_containers "$TARGET"
+        ;;
+    restart)
+        restart_containers "$TARGET"
+        ;;
+    stop)
+        stop_containers "$TARGET"
+        ;;
+    kill)
+        kill_containers "$TARGET"
+        ;;
+    *)
+        print_help
+        exit 1
+        ;;
+esac

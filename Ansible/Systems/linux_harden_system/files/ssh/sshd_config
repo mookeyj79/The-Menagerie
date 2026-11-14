@@ -1,0 +1,42 @@
+Include /etc/ssh/sshd_config.d/*.conf
+
+AllowGroups sshusers
+
+HostKey /etc/ssh/ssh_host_rsa_key
+HostKey /etc/ssh/ssh_host_ed25519_key
+
+SyslogFacility AUTH
+LogLevel VERBOSE
+
+LoginGraceTime 60
+PermitRootLogin no
+StrictModes yes
+MaxAuthTries 3
+MaxSessions 10
+
+PubkeyAuthentication yes
+AuthorizedKeysFile %h/.ssh/authorized_keys
+
+IgnoreRhosts yes
+HostbasedAuthentication no
+
+PasswordAuthentication no
+PermitEmptyPasswords no
+ChallengeResponseAuthentication no
+
+UsePAM yes
+
+X11Forwarding no
+AllowTcpForwarding no
+PermitTunnel no
+Compression no
+PrintMotd no
+Banner none
+DebianBanner no
+
+AcceptEnv LANG LC_*
+
+ClientAliveInterval 300
+ClientAliveCountMax 0
+
+Subsystem sftp /usr/lib/openssh/sftp-server

@@ -1,0 +1,46 @@
+---
+- name: Resolve 'backup'
+  vars:
+    resolver_name: "backup"
+    resolver_mode: "object"
+
+    resolver_input_object: "{{ generic_build_vars_inputs.backup | default({}) }}"
+
+    resolver_schema:
+      bwlimit: ""
+      compress: ""
+      max_retries: ""
+      rsync_log: ""
+      server: ""
+      sources: []
+      ssh_private_key: ""
+      username: ""
+      target: ""
+
+    resolver_defaults:
+      bwlimit: 1000
+      compress: 1
+      max_retries: 3
+      rsync_log: "/var/log/rsync_backup.log"
+      server: "192.168.1.1"
+      target: "/srv/backups"
+
+    resolver_vault_key: "systems/{{ inventory_hostname | lower }}/backup"
+    resolver_vault_mount: "{{ generic_build_vars_vault_mount }}"
+
+    resolver_transforms_object:
+      ssh_private_key: base64decode
+
+    resolver_enable_asserts: true
+    resolver_asserts_object:
+      bwlimit: integer
+      compress: integer
+      max_retries: integer
+      rsync_log: string
+      server: string
+      sources: iterable
+      ssh_private_key: string
+      username: string
+      target: string
+
+  ansible.builtin.include_tasks: base.yml

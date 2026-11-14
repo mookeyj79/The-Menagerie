@@ -1,0 +1,39 @@
+---
+- name: Unbound Preparation
+  become: true
+  block:
+    - name: Create Unbound User
+      ansible.builtin.include_role:
+        name: linux_manage_accounts
+      vars:
+        linux_manage_accounts_users:
+          - name: unbound
+            comment: Unbound User
+            shell: /sbin/nologin
+            create_home: false
+            uid: 2007
+            append: false
+
+    - name: Check if Docker is installed
+      ansible.builtin.include_role:
+        name: generic_check_docker
+
+    - name: Create Unbound directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: unbound
+        group: docker
+        mode: "0770"
+      loop:
+        - "{{ apps_dir }}"
+        - "{{ apps_dir }}/unbound"
+        - "{{ apps_dir }}/unbound/config"
+
+    - name: Copy Unbound configuration
+      ansible.builtin.template:
+        src: "{{ role_path }}/templates/unbound.conf.j2"
+        dest: "{{ apps_dir }}/unbound/config/unbound.conf"
+        owner: unbound
+        group: docker
+        mode: "640"

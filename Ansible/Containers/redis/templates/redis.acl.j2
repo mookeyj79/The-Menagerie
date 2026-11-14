@@ -1,0 +1,6 @@
+user default off
+user healthcheck on nopass +ping
+user {{ generic_build_vars_return.redis_admin.username }} on #{{ generic_build_vars_return.redis_admin.password }}  ~* +@all
+{% for key, user in generic_build_vars_return.redis_users.items() %}
+user {{ user.username }} on #{{ user.password }} +@read +@write +@connection -@admin -@dangerous -@pubsub
+{% endfor %}

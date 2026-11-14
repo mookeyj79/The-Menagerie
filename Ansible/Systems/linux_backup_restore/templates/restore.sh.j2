@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+
+###############################
+# Linux Backup Restore Script #
+###############################
+
+set -e
+source /opt/scripts/libs/colors.shlib
+source /opt/scripts/pushover_notify/pushover_notify.shlib
+
+LOCAL_BACKUP_DIR="/mnt/backup"
+TEMP_RESTORE_DIR="/tmp/restore_temp"
+
+# Remote Backup Information
+REMOTE_USER="{{ generic_build_vars_return.restore.username }}"
+REMOTE_HOST="{{ generic_build_vars_return.restore.server }}"
+SOURCE="{{ generic_build_vars_return.restore.source }}"
+SSH_KEY="{{ generic_build_vars_return.primary_user.home }}/.ssh/backup_key"
+
+# Rsync Settings
+BWLIMIT={{ generic_build_vars_return.restore.bwlimit }}
+COMPRESS={{ generic_build_vars_return.restore.compress }}
+MAX_RETRIES={{ generic_build_vars_return.restore.max_retries }}
+RSYNC_LOG="{{ generic_build_vars_return.restore.rsync_log }}"
+
+SSH_OPTS=(-i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="{{ generic_build_vars_return.primary_user.home }}/.ssh/known_hosts")
+if [[ "$BWLIMIT" != "0" ]]; then
+  RSYNC_BW=(--bwlimit="$BWLIMIT")
+else
+  RSYNC_BW=()
+fi
+RSYNC_SSH=(ssh "${SSH_OPTS[@]}")
+LOCAL_NICE="ionice -c2 -n7 nice -n 19"
+
+# Prepare remote (expand locally; quote safely)
+prepare_remote() {
+  ssh "${SSH_OPTS[@]}" "${REMOTE_USER}@${REMOTE_HOST}" \
+    "mkdir -p -- \"${SOURCE}\" && chmod 0750 -- \"${SOURCE}\""
+}
+
+# Clone local backup directory to remote (mirror)
+sync_backup_dir() {
+  local COMPRESS_FLAG=()
+  if (( COMPRESS == 1 )); then
+    COMPRESS_FLAG=(--compress)
+  fi
+
+  # Trailing slash on source ensures we sync contents into SOURCE/
+  ${LOCAL_NICE} rsync -a --delete "${RSYNC_BW[@]}" "${COMPRESS_FLAG[@]}" \
+    -e "$(printf '%q ' "${RSYNC_SSH[@]}")" \
+    "${REMOTE_USER}@${REMOTE_HOST}:${SOURCE}/" \
+    "${LOCAL_BACKUP_DIR}/" >> "$RSYNC_LOG" 2>&1
+}
+
+# Detect if Docker is installed
+if command -v docker >/dev/null 2>&1; then
+  DOCKER_INSTALLED=true
+else
+  DOCKER_INSTALLED=false
+fi
+
+# Stop running containers if Docker is installed
+if [[ "$DOCKER_INSTALLED" == true ]]; then
+  containers=$(docker ps -q)
+  if [[ -n "$containers" ]]; then
+    printf "${YELLOW}[!]${RESET} Stopping running containers...\n"
+    docker stop $containers
+  fi
+fi
+
+# Ensure remote path exists
+if ! prepare_remote; then
+  send_pushover "Restore Failed" "Could not prepare remote path ${REMOTE_HOST}:${SOURCE}."
+  exit 1
+fi
+
+# Clone local backup directory → remote (mirror with --delete)
+if sync_backup_dir; then
+  echo "Mirrored ${REMOTE_HOST}:${SOURCE}/" → ${LOCAL_BACKUP_DIR}/
+  send_pushover "Sync Completed" "Synced backup files from remote source."
+else
+  send_pushover "Sync Failed" "Directory mirror to ${REMOTE_HOST}:${SOURCE} failed." priority=1 sound=siren
+  exit 1
+fi
+
+# Find backup files
+mapfile -t BACKUP_FILES < <(find "$LOCAL_BACKUP_DIR" -maxdepth 1 -type f -name "*.tar.gz" | sort)
+{% raw %}if [[ ${#BACKUP_FILES[@]} -eq 0 ]]; then{% endraw %}
+  printf "${RED}[!]${RESET} No backup files found in $LOCAL_BACKUP_DIR!\n"
+  exit 0
+fi
+
+
+# Create temporary directory
+printf "${YELLOW}[!]${RESET} Preparing temporary restore directory...\n"
+rm -rf "$TEMP_RESTORE_DIR"
+mkdir -p "$TEMP_RESTORE_DIR"
+
+# Extract backups into temporary directory
+for BACKUP_FILE in "${BACKUP_FILES[@]}"; do
+  printf "${GREEN}[*]${RESET} Extracting to temporary directory: $BACKUP_FILE\n"
+  tar --extract \
+      --gzip \
+      --file="$BACKUP_FILE" \
+      --directory="$TEMP_RESTORE_DIR" \
+      --listed-incremental=/dev/null \
+      --preserve-permissions \
+      --same-owner
+done
+
+# Rsync extracted files to root
+printf "${YELLOW}[!]${RESET} Merging restored files into live filesystem...\n"
+rsync -aAXv "$TEMP_RESTORE_DIR"/ /
+
+# Cleanup
+printf "${YELLOW}[!]${RESET} Cleaning up temporary restore directory...\n"
+rm -rf "$TEMP_RESTORE_DIR"
+
+# Restart containers if Docker is installed
+if [[ "$DOCKER_INSTALLED" == true ]]; then
+  if [[ -n "$containers" ]]; then
+    printf "${YELLOW}[!]${RESET} Starting containers...\n"
+    docker start $containers
+  fi
+fi
+
+printf "${GREEN}[*]${RESET} Restore complete!\n"

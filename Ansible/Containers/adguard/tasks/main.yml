@@ -1,0 +1,64 @@
+---
+- name: AdGuard Preparation
+  become: true
+  block:
+    - name: Create Adguard User
+      ansible.builtin.include_role:
+        name: linux_manage_accounts
+      vars:
+        linux_manage_accounts_users:
+          - name: adguard
+            comment: Adguard User
+            shell: /sbin/nologin
+            create_home: false
+            uid: 2000
+            append: false
+
+    - name: Check if Docker is installed
+      ansible.builtin.include_role:
+        name: generic_check_docker
+
+    - name: Create AdGuard directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: adguard
+        group: docker
+        mode: "0770"
+      loop:
+        - "{{ apps_dir }}"
+        - "{{ apps_dir }}/adguard"
+        - "{{ apps_dir }}/adguard/certs"
+        - "{{ apps_dir }}/adguard/config"
+        - "{{ apps_dir }}/adguard/data"
+
+    - name: Disable 'systemd-resolved'
+      ansible.builtin.systemd:
+        name: systemd-resolved
+        state: stopped
+        enabled: false
+      register: resolved_service
+      failed_when: false
+
+    - name: Verify '/etc/resolv.conf' exists
+      ansible.builtin.stat:
+        path: /etc/resolv.conf
+      register: resolv_stat
+
+    - name: Remove old `/etc/resolv.conf`
+      ansible.builtin.file:
+        path: /etc/resolv.conf
+        state: absent
+      when: resolv_stat.stat.islnk | default(false)
+
+    - name: Deploy managed `/etc/resolv.conf`
+      ansible.builtin.template:
+        src: "{{ role_path }}/templates/resolv.conf.j2"
+        dest: /etc/resolv.conf
+        owner: root
+        group: root
+        mode: '644'
+      notify: Restart Networking
+
+    - name: Flush Handlers
+      ansible.builtin.meta: flush_handlers

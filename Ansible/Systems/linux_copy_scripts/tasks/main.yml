@@ -1,0 +1,59 @@
+---
+- name: Linux - Copy Script Libraries and Notify Configs
+  become: true
+  block:
+    - name: Ensure this is a Linux system
+      ansible.builtin.assert:
+        that: ansible_facts['system'] == 'Linux'
+        fail_msg: "This role should only run on Linux systems."
+        success_msg: "Confirmed: Linux system."
+
+    - name: Build variables
+      ansible.builtin.include_role:
+        name: generic_build_vars
+      vars:
+        generic_build_vars_request: [notifications, primary_user]
+        generic_build_vars_inputs:
+          notifications: "{{ notifications | default({}) }}"
+          primary_user: "{{ primary_user | default({}) }}"
+
+    - name: Create directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ generic_build_vars_return.primary_user.username }}"
+        group: "{{ generic_build_vars_return.primary_user.group }}"
+        mode: "0770"
+      loop:
+        - /opt/scripts
+        - /opt/scripts/libs
+        - /opt/scripts/discord_notify
+        - /opt/scripts/pushover_notify
+
+    - name: Copy scripts
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        owner: "{{ generic_build_vars_return.primary_user.username }}"
+        group: "{{ generic_build_vars_return.primary_user.group }}"
+        mode: "0750"
+      loop:
+        - { src: "{{ role_path }}/files/libs/colors.shlib", dest: /opt/scripts/libs/colors.shlib }
+        - { src: "{{ role_path }}/files/discord_notify/discord_notify.shlib", dest: /opt/scripts/discord_notify/discord_notify.shlib }
+        - { src: "{{ role_path }}/files/pushover_notify/pushover_notify.shlib", dest: /opt/scripts/pushover_notify/pushover_notify.shlib }
+
+    - name: Create notification config files
+      no_log: true
+      ansible.builtin.copy:
+        dest: "{{ item.dest }}"
+        content: "{{ item.content }}"
+        owner: "{{ generic_build_vars_return.primary_user.username }}"
+        group: "{{ generic_build_vars_return.primary_user.group }}"
+        mode: "0600"
+      loop:
+        - dest: /opt/scripts/discord_notify/discord_notify.conf
+          content: 'DISCORD_WEBHOOK_URL="{{ generic_build_vars_return.notifications.discord.webhook_url }}"'
+        - dest: /opt/scripts/pushover_notify/pushover_notify.conf
+          content: |
+            PUSHOVER_TOKEN="{{ generic_build_vars_return.notifications.pushover.token }}"
+            PUSHOVER_USER="{{ generic_build_vars_return.notifications.pushover.user }}"

@@ -1,0 +1,9 @@
+/var/log/rkhunter/*.log {
+    size 5M
+    rotate 5
+    compress
+    missingok
+    notifempty
+    delaycompress
+    copytruncate
+}

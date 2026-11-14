@@ -1,0 +1,100 @@
+---
+- name: Linux - Backup Setup
+  become: true
+  block:
+    - name: Ensure this is a Linux system
+      ansible.builtin.assert:
+        that: ansible_facts['system'] == 'Linux'
+        fail_msg: "This role should only run on Linux systems."
+        success_msg: "Confirmed: Linux system."
+
+    - name: Build variables
+      ansible.builtin.include_role:
+        name: generic_build_vars
+      vars:
+        generic_build_vars_request: [backup, primary_user]
+        generic_build_vars_inputs:
+          backup: "{{ backup | default({}) }}"
+          primary_user: "{{ primary_user | default({}) }}"
+
+    - name: Install required packages - Debian
+      ansible.builtin.include_tasks: debian.yml
+      when: ansible_facts["os_family"] == "Debian"
+
+    - name: Install required packages - RedHat
+      ansible.builtin.include_tasks: redhat.yml
+      when: ansible_facts["os_family"] == "RedHat"
+
+    - name: Install required packages - Alpine
+      ansible.builtin.include_tasks: alpine.yml
+      when: ansible_facts["os_family"] == "Alpine"
+
+    - name: Ensure .ssh directory exists
+      ansible.builtin.file:
+        path: "{{ generic_build_vars_return.primary_user.home }}/.ssh"
+        state: directory
+        owner: "{{ generic_build_vars_return.primary_user.username }}"
+        group: "{{ generic_build_vars_return.primary_user.group }}"
+        mode: "0700"
+
+    - name: Write SSH Keys
+      ansible.builtin.copy:
+        content: "{{ generic_build_vars_return.backup.ssh_private_key }}"
+        dest: "{{ generic_build_vars_return.primary_user.home }}/.ssh/backup_key"
+        owner: "{{ generic_build_vars_return.primary_user.username }}"
+        group: "{{ generic_build_vars_return.primary_user.group }}"
+        mode: "0600"
+      no_log: true
+
+    - name: Create backup/script directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ generic_build_vars_return.primary_user.username }}"
+        group: "{{ generic_build_vars_return.primary_user.group }}"
+        mode: "0770"
+      loop:
+        - /opt/scripts
+        - /opt/scripts/backup
+        - /mnt/backup
+
+    - name: Ensure backup targets exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ generic_build_vars_return.primary_user.username }}"
+        group: "{{ generic_build_vars_return.primary_user.group }}"
+        mode: "0770"
+      loop: "{{ generic_build_vars_return.backup.sources }}"
+
+    - name: Copy backup scripts
+      ansible.builtin.template:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        owner: "{{ generic_build_vars_return.primary_user.username }}"
+        group: "{{ generic_build_vars_return.primary_user.group }}"
+        mode: "0750"
+      loop:
+        - src: "{{ role_path }}/templates/backup_daily.sh.j2"
+          dest: /opt/scripts/backup/backup_daily.sh
+        - src: "{{ role_path }}/templates/backup_monthly.sh.j2"
+          dest: /opt/scripts/backup/backup_monthly.sh
+
+    - name: Schedule backups
+      ansible.builtin.cron:
+        name: "{{ item.name }}"
+        job: "{{ item.job }}"
+        minute: "{{ item.minute }}"
+        hour: "{{ item.hour }}"
+        day: "{{ item.day }}"
+      loop:
+        - name: "Daily Backups"
+          job: "/opt/scripts/backup/backup_daily.sh"
+          minute: "0"
+          hour: "3"
+          day: "*"
+        - name: "Monthly Backups"
+          job: "/opt/scripts/backup/backup_monthly.sh"
+          minute: "0"
+          hour: "4"
+          day: "1"

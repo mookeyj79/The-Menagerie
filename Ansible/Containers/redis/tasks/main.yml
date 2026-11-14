@@ -1,0 +1,124 @@
+---
+- name: Redis Preparation
+  become: true
+  block:
+    - name: Build variables
+      ansible.builtin.include_role:
+        name: generic_build_vars
+      vars:
+        generic_build_vars_request: [primary_user, redis_admin, redis_users]
+        generic_build_vars_inputs:
+          primary_user: "{{ primary_user | default({}) }}"
+          redis: "{{ redis | default({}) }}"
+
+    - name: Create Redis User
+      ansible.builtin.include_role:
+        name: linux_manage_accounts
+      vars:
+        linux_manage_accounts_users:
+          - name: redis
+            comment: Redis User
+            shell: /sbin/nologin
+            create_home: false
+            uid: 2004
+            append: false
+
+    - name: Check if Docker is installed
+      ansible.builtin.include_role:
+        name: generic_check_docker
+
+    - name: Create Redis directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: redis
+        group: docker
+        mode: "0750"
+      loop:
+        - "{{ apps_dir }}"
+        - "{{ apps_dir }}/redis"
+        - "{{ apps_dir }}/redis/certs"
+        - "{{ apps_dir }}/redis/config"
+        - "{{ apps_dir }}/redis/data"
+        - "{{ apps_dir }}/redis/logs"
+
+    - name: Check if Redis config already exists
+      ansible.builtin.stat:
+        path: "{{ apps_dir }}/redis/config/redis.conf"
+      register: redis_conf
+
+    - name: Check if ACL config already exists
+      ansible.builtin.stat:
+        path: "{{ apps_dir }}/redis/config/redis.acl"
+      register: acl_conf
+
+    - name: Copy Redis config file
+      ansible.builtin.copy:
+        src: "{{ role_path }}/files/redis.conf"
+        dest: "{{ apps_dir }}/redis/config/redis.conf"
+        owner: redis
+        group: docker
+        mode: "0640"
+      when: not redis_conf.stat.exists
+
+    - name: Copy ACL config file
+      ansible.builtin.template:
+        src: "{{ role_path }}/templates/redis.acl.j2"
+        dest: "{{ apps_dir }}/redis/config/redis.acl"
+        owner: redis
+        group: docker
+        mode: "0640"
+      when: not acl_conf.stat.exists
+
+    - name: Ensure Redis sysctl configuration is present
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/99-redis.conf
+        content: |
+          # Redis performance tuning
+          vm.overcommit_memory=1
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload sysctl
+
+    - name: Apply sysctl setting immediately
+      ansible.posix.sysctl:
+        name: vm.overcommit_memory
+        value: "1"
+        state: present
+        sysctl_set: true
+        reload: true
+
+    - name: Ensure THP is disabled on boot
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/disable-thp.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Disable Transparent Huge Pages (THP)
+          After=sysinit.target local-fs.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/bin/bash -c "echo never > /sys/kernel/mm/transparent_hugepage/enabled"
+          RemainAfterExit=yes
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Enable disable-thp service
+
+    - name: Create Utilities directory
+      ansible.builtin.file:
+        path: "{{ generic_build_vars_return.primary_user.home }}/utils"
+        state: directory
+        mode: "0755"
+        owner: "{{ generic_build_vars_return.primary_user.username }}"
+        group: "{{ generic_build_vars_return.primary_user.group }}"
+
+    - name: Copy Redis password utility
+      ansible.builtin.copy:
+        src: "{{ role_path }}/files/generate_redis_passhash"
+        dest: "{{ generic_build_vars_return.primary_user.home }}/utils/generate_reds_passhash"
+        owner: "{{ generic_build_vars_return.primary_user.username }}"
+        group: "{{ generic_build_vars_return.primary_user.username }}"
+        mode: "0755"

@@ -1,0 +1,10 @@
+---
+- name: Check if reboot is required - RedHat
+  ansible.builtin.stat:
+    path: /usr/bin/needs-restarting
+  register: _reboot_command
+  changed_when: false
+
+- name: Set 'reboot_required' fact
+  ansible.builtin.set_fact:
+    reboot_required: "{{ _reboot_command.rc != 0 | bool }}"

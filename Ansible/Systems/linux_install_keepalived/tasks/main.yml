@@ -1,0 +1,43 @@
+---
+- name: Linux - Backup Setup
+  become: true
+  block:
+    - name: Ensure this is a Linux system
+      ansible.builtin.assert:
+        that: ansible_facts['system'] == 'Linux'
+        fail_msg: "This role should only run on Linux systems."
+        success_msg: "Confirmed: Linux system."
+
+    - name: Build variables
+      ansible.builtin.include_role:
+        name: generic_build_vars
+      vars:
+        generic_build_vars_request: [keepalived]
+        generic_build_vars_inputs:
+          keepalived: "{{ keepalived | default({}) }}"
+
+    - name: Install required packages - Debian
+      ansible.builtin.include_tasks: debian.yml
+      when: ansible_facts["os_family"] == "Debian"
+
+    - name: Install required packages - RedHat
+      ansible.builtin.include_tasks: redhat.yml
+      when: ansible_facts["os_family"] == "RedHat"
+
+    - name: Install required packages - Alpine
+      ansible.builtin.include_tasks: alpine.yml
+      when: ansible_facts["os_family"] == "Alpine"
+
+    - name: Copy 'keepalived.conf'
+      ansible.builtin.template:
+        src: "{{ role_path }}/templates/keepalived.conf.j2"
+        dest: /etc/keepalived/keepalived.conf
+        owner: root
+        group: root
+        mode: '0640'
+
+    - name: Enable and start Keepalived service
+      ansible.builtin.systemd:
+        name: keepalived.service
+        enabled: true
+        state: started

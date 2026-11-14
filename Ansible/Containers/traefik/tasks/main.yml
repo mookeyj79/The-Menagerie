@@ -1,0 +1,31 @@
+---
+- name: Traefik Preparation
+  become: true
+  block:
+    - name: Build variables
+      ansible.builtin.include_role:
+        name: generic_build_vars
+      vars:
+        generic_build_vars_request: [traefik]
+        generic_build_vars_inputs:
+          traefik: "{{ traefik | default({}) }}"
+
+    - name: Create Traefik User
+      ansible.builtin.include_role:
+        name: linux_manage_accounts
+      vars:
+        linux_manage_accounts_users:
+          - name: traefik
+            comment: Traefik User
+            shell: /usr/bin/sh
+            create_home: true
+            home: /home/traefik
+            uid: 2009
+            append: false
+            password: {{ generic_build_vars_return.traefik.password }}
+            ssh_authorized_keys:
+              - {{ generic_build_vars_return.traefik.ssh_public_key }}
+
+    - name: Check if Docker is installed
+      ansible.builtin.include_role:
+        name: generic_check_docker

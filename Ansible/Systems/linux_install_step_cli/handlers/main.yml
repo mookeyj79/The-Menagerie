@@ -1,0 +1,15 @@
+---
+- name: Update system trust - Debian
+  become: true
+  ansible.builtin.command: update-ca-certificates
+  changed_when: false
+
+- name: Update system trust - Alpine
+  become: true
+  ansible.builtin.command: update-ca-certificates
+  changed_when: false
+
+- name: Update system trust - RedHat
+  become: true
+  ansible.builtin.command: update-ca-trust extract
+  changed_when: false

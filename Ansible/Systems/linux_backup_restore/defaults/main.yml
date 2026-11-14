@@ -1,0 +1,9 @@
+---
+restore_bwlimit: 1000
+restore_compress: 1
+restore_max_retries: 3
+restore_rsync_log: /var/log/rsync_restore.log
+restore_server: file1.mikewashere.lan
+restore_source: "/srv/storage/Backups/{{ inventory_hostname | lower }}"
+restore_targets:
+  - /opt/apps

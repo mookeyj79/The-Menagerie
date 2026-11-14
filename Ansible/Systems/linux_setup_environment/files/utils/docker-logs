@@ -1,0 +1,78 @@
+#!/bin/bash
+
+# docker-logs: Enhanced Docker logs viewer with color and interactivity
+
+show_help() {
+    cat <<EOF
+Usage:
+    docker-logs <container-name> [options]
+    docker-logs -i [options]
+    docker-logs help
+
+Options:
+    -f    Follow logs (like tail -f)
+    -i    Interactive container selector
+    help  Show this help screen
+
+Examples:
+    docker-logs my-container         # Show logs of 'my-container'
+    docker-logs -f my-container     # Follow logs in real-time
+    docker-logs -i                  # Select a container interactively
+    docker-logs -if                 # Interactive + follow logs
+EOF
+    exit 0
+}
+
+# Parse flags
+FOLLOW=false
+INTERACTIVE=false
+
+if [[ "$1" == "help" || $# -eq 0 ]]; then
+    show_help
+fi
+
+while getopts ":fi" opt; do
+    case ${opt} in
+        f ) FOLLOW=true ;;
+        i ) INTERACTIVE=true ;;
+        \? ) echo "Invalid option: -$OPTARG" >&2; exit 1 ;;
+    esac
+done
+shift $((OPTIND -1))
+
+# Select container
+if $INTERACTIVE; then
+    if ! command -v fzf &> /dev/null; then
+        echo "Error: 'fzf' is required for interactive mode." >&2
+        exit 1
+    fi
+    CONTAINER=$(docker ps -a --format '{{.Names}}' | fzf)
+    [[ -z "$CONTAINER" ]] && echo "No container selected." && exit 1
+else
+    CONTAINER="$1"
+fi
+
+# Check if container exists
+if ! docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER"; then
+    echo "Error: Container '$CONTAINER' not found." >&2
+    exit 1
+fi
+
+# Choose pager
+if command -v batcat &> /dev/null; then
+    PAGER="batcat --paging=always"
+elif command -v bat &> /dev/null; then
+    PAGER="bat --paging=always"
+else
+    PAGER="less -R +G"
+fi
+
+# Show logs
+if $FOLLOW; then
+    docker logs -f --since 0s "$CONTAINER"
+else
+    LOG_OUTPUT=$(mktemp)
+    docker logs --since 0s "$CONTAINER" > "$LOG_OUTPUT" 2>&1
+    eval "$PAGER \"$LOG_OUTPUT\""
+    rm -f "$LOG_OUTPUT"
+fi

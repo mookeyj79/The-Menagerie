@@ -1,0 +1,568 @@
+# ============================================================================
+# fw_rules.yml - Network policy (RouterOS filter chains + Cisco ACLs)
+# ============================================================================
+# Answers "which source can reach which destination, on what, permit or
+# deny." References fw_groups.yml names for src/dst.
+#
+# ============================================================================
+# Schema
+# ============================================================================
+#
+#   name        : kebab-case unique identifier
+#   description : optional one-line purpose
+#   src         : fw_groups.yml name, list of names, or the literal keyword
+#                 "any". A literal CIDR is also valid for narrow self-
+#                 protection cases (see input-accept-loopback).
+#   dst         : same value rules as src; omit for self/router-destined
+#                 rules (those use chain: input instead)
+#   protocol    : tcp | udp | icmp | ospf | any - always a single value,
+#                 never a list. Split multi-protocol policy into separate
+#                 rules (see router3-retronet-dns-dhcp / -icmp for the
+#                 pattern).
+#   ports       : list of dst ports. Each entry is an int, or a string
+#                 "N-M" for a range (see sunshine-stream-udp).
+#   action      : accept | drop
+#   chain       : input | forward
+#                   - input:   traffic destined FOR the router itself
+#                   - forward: traffic routed THROUGH the router
+#   applies_to  : list of systems.yml router hostnames this rule renders on
+#   notes       : optional; structural context only
+#
+# ============================================================================
+
+rules:
+
+  # ==========================================================================
+  # Baseline / self-protection (input chain) - all routers
+  # ==========================================================================
+
+  - name: input-drop-invalid
+    src: any
+    protocol: any
+    action: drop
+    chain: input
+    applies_to: [router1, router2]
+
+  - name: input-block-wan-dns-relay
+    src: any
+    protocol: udp
+    ports: [53]
+    action: drop
+    chain: input
+    applies_to: [router1]
+
+  - name: input-accept-established
+    src: any
+    protocol: any
+    action: accept
+    chain: input
+    applies_to: [router1, router2]
+
+  - name: input-accept-loopback
+    src: any
+    dst: 127.0.0.0/8
+    protocol: any
+    action: accept
+    chain: input
+    applies_to: [router1, router2]
+
+  - name: lan-gateway-services
+    src: [Internal_Servers, Internal_Users, Internal_Guest_Network, Internal_Smart_Home,
+          Internal_Devices, Internal_Surveillance, Internal_DevOps]
+    protocol: udp
+    ports: [53, 67, 123]
+    action: accept
+    chain: input
+    applies_to: [router1, router2]
+
+  - name: architecture-router-services
+    src: Architecture
+    protocol: udp
+    ports: [53, 123]
+    action: accept
+    chain: input
+    applies_to: [router1, router2]
+
+  - name: hardware-mgmt-self-access
+    description: Admin plane access to router services (SSH/HTTP/HTTPS/Winbox)
+    src: [Hardware_Management, Emergency_Console_Access]
+    protocol: tcp
+    ports: [22, 80, 443, 8291]
+    action: accept
+    chain: input
+    applies_to: [router1, router2]
+
+  - name: server-mgmt-router-services
+    src: Server_Management
+    protocol: udp
+    ports: [53, 123]
+    action: accept
+    chain: input
+    applies_to: [router1, router2]
+
+  - name: power-mgmt-router-services
+    src: Power_Management
+    protocol: udp
+    ports: [53, 123]
+    action: accept
+    chain: input
+    applies_to: [router2]
+
+  - name: devops-api-ssl
+    src: DevOps
+    protocol: tcp
+    ports: [8729]
+    action: accept
+    chain: input
+    applies_to: [router1, router2]
+
+  - name: icmp-rate-limited
+    src: any
+    protocol: icmp
+    action: accept
+    chain: input
+    applies_to: [router1, router2]
+
+  - name: ospf-on-architecture
+    src: Architecture
+    protocol: ospf
+    action: accept
+    chain: input
+    applies_to: [router1, router2]
+
+  - name: portscan-detect-and-drop
+    src: any
+    protocol: tcp
+    action: drop
+    chain: input
+    applies_to: [router1, router2]
+    notes: Two-step pattern - add-src-to-address-list PortScanners on psd match, then drop src-address-list=PortScanners.
+
+  - name: input-final-drop
+    src: any
+    protocol: any
+    action: drop
+    chain: input
+    applies_to: [router1, router2]
+
+  # ==========================================================================
+  # Baseline / self-protection (forward chain) - all routers
+  # ==========================================================================
+
+  - name: forward-drop-invalid
+    src: any
+    protocol: any
+    action: drop
+    chain: forward
+    applies_to: [router1, router2]
+
+  - name: forward-accept-established
+    src: any
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+
+  - name: emergency-access-isolation
+    src: any
+    dst: any
+    protocol: any
+    action: drop
+    chain: forward
+    applies_to: [router1, router2]
+    notes: Applied both directions on the emergency-access interface itself, independent of address-list membership.
+
+  # ==========================================================================
+  # Internet egress
+  # ==========================================================================
+
+  - name: internet-egress-router1
+    src: [Architecture, DMZ_Servers, Internal_Servers, Internal_Users,
+          Internal_Guest_Network, Internal_Smart_Home, Internal_Devices,
+          Internal_RetroNet, Internal_DevOps]
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router1]
+    notes: out-interface-list=WAN
+
+  - name: internet-egress-router2
+    src: [Internal_Servers, Internal_Users, Internal_Guest_Network,
+          Internal_Smart_Home, Internal_Devices, Internal_RetroNet,
+          Internal_DevOps]
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router2]
+    notes: out-interface-list=Architecture
+
+  - name: mgmt-planes-to-bastion-proxy
+    description: Hardware/Server/Power management route internet-bound traffic through bastion's proxy
+    src: [Hardware_Management, Server_Management, Power_Management]
+    dst: Bastions
+    protocol: tcp
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: Port set by proxy_allowlist.yml's rendering target, not fixed here.
+
+  # ==========================================================================
+  # Management plane self-access + automation reach
+  # ==========================================================================
+
+  - name: hardware-mgmt-self
+    src: Hardware_Management
+    dst: Hardware_Management
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+
+  - name: devops-to-hardware-mgmt
+    src: Internal_DevOps
+    dst: Hardware_Management
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: server-mgmt-self
+    src: Server_Management
+    dst: Server_Management
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+
+  - name: devops-to-server-mgmt
+    src: Internal_DevOps
+    dst: Server_Management
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  # ==========================================================================
+  # Bastion-mediated admin access (human access, centralized)
+  # ==========================================================================
+
+  - name: bastion-to-hardware-mgmt
+    src: Bastions
+    dst: Hardware_Management
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+
+  - name: bastion-to-server-mgmt
+    src: Bastions
+    dst: Server_Management
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+
+  - name: bastion-to-power-mgmt
+    src: Bastions
+    dst: Power_Management
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: bastion-to-dmz-servers
+    src: Bastions
+    dst: DMZ_Servers
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router1]
+
+  - name: bastion-to-internal-servers
+    src: Bastions
+    dst: Internal_Servers
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: bastion-to-internal-devices
+    src: Bastions
+    dst: Internal_Devices
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: bastion-to-internal-devops
+    src: Bastions
+    dst: Internal_DevOps
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  # ==========================================================================
+  # DMZ - Servers (Router1)
+  # ==========================================================================
+
+  - name: internal-servers-to-dmz-servers
+    src: Internal_Servers
+    dst: DMZ_Servers
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router1]
+
+  - name: devops-to-dmz-servers
+    src: Internal_DevOps
+    dst: DMZ_Servers
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router1]
+
+  - name: dmz-servers-to-internal-servers
+    src: DMZ_Servers
+    dst: Internal_Servers
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router1]
+
+  # ==========================================================================
+  # Internal - Servers / Devices / DevOps (Router2)
+  # ==========================================================================
+
+  - name: devops-to-internal-servers
+    src: Internal_DevOps
+    dst: Internal_Servers
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: devops-to-internal-devices
+    src: Internal_DevOps
+    dst: Internal_Devices
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  # ==========================================================================
+  # CAs - bootstrap
+  # ==========================================================================
+
+  - name: bootstrap-clients-to-cas
+    src: [DMZ_Servers, Internal_Users, Internal_Devices, Internal_DevOps, Server_Management]
+    dst: CAs
+    protocol: tcp
+    ports: [443]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: cas-to-bootstrap-clients
+    src: CAs
+    dst: [Internal_Devices, Internal_DevOps, Server_Management]
+    protocol: tcp
+    ports: [80]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  # ==========================================================================
+  # FileServers - bootstrap
+  # ==========================================================================
+
+  - name: users-to-fileservers-smb
+    src: Internal_Users
+    dst: FileServers
+    protocol: tcp
+    ports: [139, 445, 5357, 5358]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: users-to-fileservers-smb-discovery
+    src: Internal_Users
+    dst: FileServers
+    protocol: udp
+    ports: [137, 138, 3702]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: dmz-to-fileservers-object-storage
+    src: DMZ_Servers
+    dst: FileServers
+    protocol: tcp
+    ports: [9000]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: devices-to-fileservers-object-storage
+    src: Internal_Devices
+    dst: FileServers
+    protocol: tcp
+    ports: [9000]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  # ==========================================================================
+  # Vaults - bootstrap
+  # ==========================================================================
+
+  - name: bootstrap-clients-to-vaults
+    src: [Bastions, DMZ_Servers, Internal_Devices, Internal_DevOps]
+    dst: Vaults
+    protocol: tcp
+    ports: [8200]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  # ==========================================================================
+  # Ingress
+  # ==========================================================================
+
+  - name: ingress-self
+    src: Ingress
+    dst: Ingress
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: users-to-ingress
+    src: Internal_Users
+    dst: Ingress
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  # ==========================================================================
+  # Devices / peripherals
+  # ==========================================================================
+
+  - name: users-and-guests-to-printers
+    src: [Internal_Users, Internal_Guest_Network]
+    dst: Printers
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: users-to-cncs
+    src: Internal_Users
+    dst: CNCs
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: users-to-leds
+    src: Internal_Users
+    dst: LEDs
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  # ==========================================================================
+  # Sunshine
+  # ==========================================================================
+
+  - name: sunshine-stream-tcp
+    src: Sunshine_Targets
+    dst: Sunshine_Sources
+    protocol: tcp
+    ports: [47984, 47989, 48010]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  - name: sunshine-stream-udp
+    src: Sunshine_Targets
+    dst: Sunshine_Sources
+    protocol: udp
+    ports: [5353, "47998-48010"]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+
+  # ==========================================================================
+  # Final drop
+  # ==========================================================================
+
+  - name: forward-final-drop
+    src: any
+    protocol: any
+    action: drop
+    chain: forward
+    applies_to: [router1, router2]
+
+  # ==========================================================================
+  # Router3 (Cisco IOS)
+  # ==========================================================================
+
+  - name: router3-mgmt-ssh
+    src: Hardware_Management
+    action: accept
+    chain: input
+    applies_to: [router3]
+    notes: Renders as `ip access-list standard MGMT-SSH`, applied via access-class on vty 0-4 and 5-15.
+
+  - name: router3-retronet-dns-dhcp
+    src: any
+    protocol: udp
+    ports: [53, 67, 123]
+    action: accept
+    chain: input
+    applies_to: [router3]
+    notes: Matches Router3's own GigabitEthernet1/0.21 gateway IP, resolved via vlans.yml gateway_host/gateway_interface for internal-retronet.
+
+  - name: router3-retronet-icmp
+    src: any
+    protocol: icmp
+    action: accept
+    chain: input
+    applies_to: [router3]
+
+  - name: router3-retronet-deny-internal
+    src: Internal_RetroNet
+    dst: RFC1918_Private
+    protocol: any
+    action: drop
+    chain: forward
+    applies_to: [router3]
+    notes: Followed by an implicit permit-any (Cisco ACL deny-then-permit pattern) - RetroNet reaches the internet but not internal ranges.
+
+  - name: router3-smarthome-dns-dhcp
+    src: any
+    protocol: udp
+    ports: [53, 67, 123]
+    action: accept
+    chain: input
+    applies_to: [router3]
+    notes: Matches Router3's own GigabitEthernet1/0.19 gateway IP, resolved via vlans.yml gateway_host/gateway_interface for internal-smarthome.
+
+  - name: router3-smarthome-icmp
+    src: any
+    protocol: icmp
+    action: accept
+    chain: input
+    applies_to: [router3]
+
+  - name: router3-smarthome-deny-internal
+    src: Internal_Smart_Home
+    dst: RFC1918_Private
+    protocol: any
+    action: drop
+    chain: forward
+    applies_to: [router3]
+    notes: Same deny-then-permit pattern as router3-retronet-deny-internal, applied to the SmartHome extension subnet.
