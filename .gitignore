@@ -33,3 +33,6 @@ Terraform/site.yml
 # Python caches
 __pycache__/
 .pytest_cache/
+
+# Ansible's per-role local cache (empty collections/modules/roles dirs)
+.ansible/
