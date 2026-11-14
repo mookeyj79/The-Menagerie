@@ -19,11 +19,20 @@
 #   files    : optional globs relative to this file; a glob match beats the
 #              file extension when picking the dialect.
 #   rules    : list of {regex, dummy}. A line matching `regex` (re.search) is
-#              hidden WHOLE and replaced by `dummy`. First matching rule wins,
-#              so put specific secret rules before the MAC rule. `dummy` must
-#              match its own `regex` (checked at load) so a dummy is never a
-#              hole in the scan; "already encrypted" means a metadata line
-#              directly above an exact dummy.
+#              encrypted WHOLE and replaced by `dummy`. First matching rule
+#              wins, so put specific secret rules before the MAC rule. `dummy`
+#              must match its own `regex` (checked at load) so a dummy is never
+#              a hole in the scan; "already encrypted" means a metadata line
+#              directly above a dummy.
+#     masks  : optional list of {regex, replace}. Makes the rule MASKED: the
+#              dummy is the original line with every mask match replaced by
+#              `replace`, set into `dummy` at {masked} (indentation kept), so
+#              the line's structure stays readable. The original is still
+#              encrypted whole. Only for values with a fixed shape (MACs):
+#              a mask over a free-form secret can leak its tail (ADR 0004).
+#              Each `replace` must match its own mask, so a dummy is stable.
+#     legacy_dummies : optional list of older fixed dummies still accepted
+#              under a metadata line. `rekey` or `edit` rewrites them.
 #   tripwire : optional broad regex that flags suspicious lines no rule
 #              covers (used by `check`).
 #
@@ -66,9 +75,15 @@ filetypes:
       - regex: '^\s*/tool e-mail\b.*\bpassword='
         dummy: '/tool e-mail set password=REDACTED'
       # Every MAC address (device identifiers). Last: a line holding a
-      # secret AND a MAC gets the secret dummy.
+      # secret AND a MAC gets the secret dummy. Masked: only the MAC is
+      # zeroed in the visible line.
       - regex: '\b(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b'
-        dummy: '# REDACTED 00:00:00:00:00:00'
+        masks:
+          - regex: '\b(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b'
+            replace: '00:00:00:00:00:00'
+        dummy: 'REDACTED {masked}'
+        legacy_dummies:
+          - '# REDACTED 00:00:00:00:00:00'
 
   ios:
     comment: "!"
@@ -104,7 +119,16 @@ filetypes:
         dummy: 'tacacs-server key 7 REDACTED'
       # Every MAC address: colon, dash and Cisco dotted forms.
       - regex: '(?i)\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b|\b[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4}\b'
-        dummy: '! REDACTED 0000.0000.0000'
+        masks:
+          - regex: '(?i)\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b'
+            replace: '00:00:00:00:00:00'
+          - regex: '(?i)\b(?:[0-9a-f]{2}-){5}[0-9a-f]{2}\b'
+            replace: '00-00-00-00-00-00'
+          - regex: '(?i)\b[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4}\b'
+            replace: '0000.0000.0000'
+        dummy: 'REDACTED {masked}'
+        legacy_dummies:
+          - '! REDACTED 0000.0000.0000'
 
   wifi:
     comment: "#"

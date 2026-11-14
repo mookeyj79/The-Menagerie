@@ -22,7 +22,7 @@ The homelab is built in layers, each in its own top-level directory:
 
 - Secrets live in HashiCorp Vault. Never read, print or commit a Vault dump (`vault_backup.json`, `vault_secrets.json`); they are in the Ignored set.
 - Structured files (YAML, JSON, dotenv, ini) are encrypted with **SOPS**; `.sops.yaml` holds the creation rules and the age recipients (daily key and Backup key, see ADR 0002). Use `sops edit <file>` on a SOPS-governed file rather than writing plaintext into it.
-- Unstructured text (router configs, the Wi-Fi notes file) is protected with **confcrypt v2** (`Scripts/confcrypt/confcrypt.py`). Rules are whole-line: each dialect in `Router Configs/.confcrypt.yml` pairs a line regex with a fixed dummy line, and every matching line is replaced whole by its dummy, with the age-encrypted original in a metadata comment line directly above (`# confcrypt v2 <blob>`, `!` for Cisco). Recipients come from `.sops.yaml`. Usage:
+- Unstructured text (router configs, the Wi-Fi notes file) is protected with **confcrypt v2** (`Scripts/confcrypt/confcrypt.py`). Rules are whole-line: each dialect in `Router Configs/.confcrypt.yml` pairs a line regex with a fixed dummy line, and every matching line is replaced whole by its dummy (for MAC rules, a *masked* dummy: the original line with only the MAC zeroed, prefixed `REDACTED`, ADR 0004), with the age-encrypted original in a metadata comment line directly above (`# confcrypt v2 <blob>`, `!` for Cisco). Recipients come from `.sops.yaml`. Usage:
   ```
   python Scripts/confcrypt/confcrypt.py encrypt|decrypt|rekey <file> [--in-place [--backup] | -o OUT]
   python Scripts/confcrypt/confcrypt.py encrypt <file> --dry-run
