@@ -3,7 +3,9 @@
 # Default rules stay on; the custom rules close the gaps the audit found.
 # Reviewed false positives are recorded either with an inline `gitleaks:allow`
 # on the line or as a commented path entry under [[allowlists]] below. There
-# is no .gitleaksignore (its line-number fingerprints go stale).
+# is no .gitleaksignore (its line-number fingerprints go stale). Code that only
+# names a secret is instead a narrow, value-anchored refinement in the rule's
+# own allowlist, each with a lookalike gate test (ADR 0003).
 
 title = "The Menagerie gate"
 
@@ -70,9 +72,23 @@ keywords = ["password", "passwd", "pwd", "secret", "token", "psk", "passphrase"]
 [[rules.allowlists]]
 regexTarget = "secret"
 regexes = [
-  '''(?i)^(changeme|example|null|none|true|false|redacted)$''',
+  # `string` is a type in Ansible assert schemas (`password: string`).
+  '''(?i)^(changeme|example|null|none|true|false|redacted|string)$''',
   '''^(var|local|data|module|lookup)[.(]''',
+  # Code-shape refinements (ADR 0003), each anchored to the whole captured
+  # value. The capture stops at whitespace or a quote, so a Terraform call ends
+  # at its first `,` or `)`.
+  # A call on a Terraform reference: `coalesce(var.vault_token, "")`.
+  '''^[A-Za-z_]\w*\((?:var|local|data|module)\.[\w.]*[,)]$''',
+  # A dotted macro call on one name: `vmac.kv2_secret(raw)`.
+  '''^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+\([A-Za-z_]\w*\)$''',
 ]
+# A KV v2 Vault path (`secret=kv/data/apps/...` in a hashi_vault lookup) names
+# where a secret lives. Matched on the finding itself, not the line, so another
+# value on the same line is still scanned.
+[[rules.allowlists]]
+regexTarget = "match"
+regexes = ['''^secret=[\w-]+/data/[\w/-]*$''']
 
 # ---- global allowlist ----------------------------------------------------
 # Encrypted lines (story 42), and nothing else: only whole lines that are
