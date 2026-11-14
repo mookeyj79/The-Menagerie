@@ -4,9 +4,6 @@
 # Superseded revisions
 **/OLD/
 
-# Generated DR copy of Ansible/ and Terraform/
-Disaster_Recovery/DR_Dir/
-
 # Vault dumps and secrets scratch folder
 Homelab Scripts/vault_backup.json
 Homelab Scripts/vault_secrets.json
