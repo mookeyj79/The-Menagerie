@@ -1,5 +1,7 @@
 """Seam 1 (continued): confcrypt layer, SOPS layer, Ignored set, fail-closed, modes."""
 import base64
+import random
+import re
 
 import pyrage
 import pytest
@@ -27,8 +29,7 @@ HV = "Disaster_Recovery/Templates/host_vars"
 def _encrypted_tree(repo):
     repo.write(f"{ROUTER_DIR}/Router1.rsc", RSC.format(pw=rnd(12), psk=rnd(16), comm=rnd(10)))
     repo.write(f"{ROUTER_DIR}/Router3.ios", IOS.format(h1=rnd(30), h2=rnd(30), h3=rnd(14).upper()))
-    repo.write(f"{ROUTER_DIR}/WiFi's.txt", f"home ssid\npsk {rnd(16)}\nlicense {rnd(20)}\n")
-    for f in ("Router1.rsc", "Router3.ios", "WiFi's.txt"):
+    for f in ("Router1.rsc", "Router3.ios"):
         repo.confcrypt_encrypt(f"{ROUTER_DIR}/{f}")
     repo.write(f"{HV}/vault1.yml", f"token: {rnd(20)}\nnested:\n  key: {rnd(12)}\n")
     repo.write("app/db.sops.yml", f"db_password: {rnd(14)}\n")
@@ -36,7 +37,7 @@ def _encrypted_tree(repo):
     repo.sops_encrypt("app/db.sops.yml")
 
 
-def test_correctly_encrypted_router_wifi_and_sops_files_pass(repo):
+def test_correctly_encrypted_router_and_sops_files_pass(repo):
     _encrypted_tree(repo)
     repo.stage_all()
     r = repo.gate("--staged")
@@ -158,13 +159,27 @@ def _every_dummy_encrypted(repo):
     Encrypted line (metadata line, then the exact dummy)."""
     cfg = yaml.safe_load((repo.root / ROUTER_DIR / ".confcrypt.yml").read_text())
     ident = pyrage.x25519.Identity.from_str(repo.key_file.read_text().strip())
-    names = {"rsc": "Router1.rsc", "ios": "Router3.ios", "wifi": "WiFi's.txt"}
+    names = {"rsc": "Router1.rsc", "ios": "Router3.ios"}
+    assert set(cfg["filetypes"]) == set(names), "new dialect: give it a fixture file name"
     for dialect, ft in cfg["filetypes"].items():
         out = []
-        for rule in ft["rules"]:
-            blob = pyrage.encrypt(rnd(20).encode(), [ident.to_public()])
+
+        def encrypted_line(original, dummy):
+            blob = pyrage.encrypt(original.encode(), [ident.to_public()])
             out.append(f"{ft['comment']} confcrypt v2 {base64.urlsafe_b64encode(blob).rstrip(b'=').decode()}")
-            out.append(rule["dummy"])
+            out.append(dummy)
+
+        for rule in ft["rules"]:
+            if "{masked}" not in rule["dummy"]:
+                encrypted_line(rnd(20), rule["dummy"])
+                continue
+            # A masked dummy is the original with each mask match replaced,
+            # set into the template: one line per mask shape.
+            for mask in rule["masks"]:
+                value = re.sub("0", lambda _: random.choice("123456789abcdef"), mask["replace"])
+                encrypted_line(f"comment={value}", rule["dummy"].replace("{masked}", f"comment={mask['replace']}"))
+            for legacy in rule.get("legacy_dummies", []):
+                encrypted_line(rnd(20), legacy)
         repo.write(f"{ROUTER_DIR}/{names[dialect]}", "\n".join(out) + "\n")
 
 

@@ -99,18 +99,6 @@ def test_each_recipient_key_alone_decrypts(ws):
     assert ws.decrypt_bytes(enc, "r1.rsc", key=ws.backup) == data
 
 
-def test_wifi_dialect_encrypts_every_line(ws):
-    data = b"FakeSSID-1\r\nfake-psk-one two\r\nFAKE-LICENSE-KEY\r\n\r\nlast fake"
-    enc = ws.encrypt(ws.write("WiFi's.txt", data))
-    for frag in (b"FakeSSID", b"fake-psk", b"FAKE-LICENSE", b"last fake"):
-        assert frag not in enc
-    out = ws.dir / "tmp" / "wifi_out.txt"
-    src = ws.dir / "tmp" / "wifi_in.txt"
-    src.write_bytes(enc)
-    ws.run("decrypt", src, "--dialect", "wifi", "-o", out, check=True)
-    assert out.read_bytes() == data
-
-
 def test_output_never_contains_the_secret(ws):
     src = ws.write("r1.rsc", FAKE_RSC)
     out = ws.dir / "tmp" / "o.rsc"

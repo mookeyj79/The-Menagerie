@@ -134,8 +134,6 @@ regexes = [
   '''^\n?[ \t]*crypto isakmp key REDACTED address 0\.0\.0\.0\r?\n?$''',
   '''^\n?[ \t]*tacacs-server key 7 REDACTED\r?\n?$''',
   '''^\n?[ \t]*! REDACTED 0000\.0000\.0000\r?\n?$''',
-  # wifi dummy
-  '''^\n?[ \t]*REDACTED\r?\n?$''',
 ]
 
 # Whole-token placeholders, matched against the captured value only, so a
