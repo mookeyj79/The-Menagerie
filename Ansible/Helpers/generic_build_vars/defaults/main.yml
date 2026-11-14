@@ -1,0 +1,6 @@
+---
+generic_build_vars_debug: false
+generic_build_vars_inputs: {}
+generic_build_vars_request: []
+generic_build_vars_return: {}
+generic_build_vars_vault_mount: secret

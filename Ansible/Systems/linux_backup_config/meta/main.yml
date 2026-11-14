@@ -1,0 +1,20 @@
+---
+galaxy_info:
+  namespace: mookeyj
+  role_name: linux_backup_config
+  author: MookeyJ
+  description: Configures continuous backups.
+  license: MIT
+  min_ansible_version: '2.13'
+
+  platforms:
+    - name: Debian
+      versions: [bullseye, bookworm]
+    - name: Ubuntu
+      version: [focal, jammy, noble]
+    - name: EL
+      versions: ['8', '9']
+    - name: Alpine
+      versions: [all]
+
+dependencies: []

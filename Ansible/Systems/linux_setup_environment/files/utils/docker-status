@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+
+source /opt/scripts/libs/colors.shlib
+
+# Header
+printf "%-30s %-15s %-10s\n" "CONTAINER" "STATUS" "HEALTH"
+
+# List all containers
+docker ps -a --format "{{.Names}}\t{{.Status}}" | while IFS=$'\t' read -r name status; do
+    # Trim base status
+    short_status=$(echo "$status" | awk '{print $1}')
+
+    # Default values
+    health="n/a"
+    color="$NC"
+
+    # Get health if available
+    if docker inspect --format='{{.State.Health.Status}}' "$name" &>/dev/null; then
+        health=$(docker inspect --format='{{.State.Health.Status}}' "$name")
+    fi
+
+    # Determine color based on status/health
+    if [[ "$short_status" == "Up" && "$health" == "healthy" ]]; then
+        color="$GREEN"
+    elif [[ "$health" == "unhealthy" ]]; then
+        color="$YELLOW"
+    elif [[ "$short_status" == "Exited" || "$short_status" == "Dead" ]]; then
+        color="$RED"
+    elif [[ "$short_status" == "Up" && "$health" == "starting" ]]; then
+        color="$YELLOW"
+    fi
+
+    # Output
+    printf "${color}%-30s %-15s %-10s${RESET}\n" "$name" "$short_status" "$health"
+done

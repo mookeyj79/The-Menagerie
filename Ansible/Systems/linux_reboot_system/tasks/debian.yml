@@ -1,0 +1,9 @@
+---
+- name: "Check if reboot is required - Debian"
+  ansible.builtin.stat:
+    path: /var/run/reboot-required
+  register: _reboot_file
+
+- name: Set 'reboot_required' fact
+  ansible.builtin.set_fact:
+    reboot_required: "{{ _reboot_file.stat.exists | bool }}"

@@ -1,0 +1,27 @@
+---
+- name: Generic - OS Facts Test
+  become: false
+  block:
+    - name: Print System Information
+      ansible.builtin.debug:
+        msg: "{{ ansible_system }}"
+
+    - name: Print OS Family
+      ansible.builtin.debug:
+        msg: "{{ ansible_os_family }}"
+
+    - name: Print Distribution
+      ansible.builtin.debug:
+        msg: "{{ ansible_distribution }}"
+
+    - name: Print Distribution Release
+      ansible.builtin.debug:
+        msg: "{{ ansible_distribution_release }}"
+
+    - name: Print Distribution Version
+      ansible.builtin.debug:
+        msg: "{{ ansible_distribution_version }}"
+
+    - name: Print Architecture
+      ansible.builtin.debug:
+        msg: "{{ ansible_architecture }}"

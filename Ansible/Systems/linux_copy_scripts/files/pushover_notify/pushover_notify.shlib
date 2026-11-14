@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+
+################################
+# Pushover Notification Script #
+################################
+
+PUSHOVER_CONFIG="/opt/scripts/pushover_notify/pushover_notify.conf"
+
+source /opt/scripts/libs/colors.shlib
+
+
+send_pushover() {
+    if [[ -f "$PUSHOVER_CONFIG" ]]; then
+        source "$PUSHOVER_CONFIG"
+    else
+        printf "${RED}[!]${RESET} Missing Pushover config at $PUSHOVER_CONFIG!\n" >&2
+        exit 1
+    fi
+
+    if [[ $# -lt 2 ]]; then
+        printf "${GREEN}Usage: ${CYAN}$0 ${WHITE}\"Title\" \"Message\" ${YELLOW}[key=value ...]${RESET}\n" >&2
+        exit 1
+    fi
+
+    TITLE="$1"
+    MESSAGE="$2"
+    shift 2
+
+    PAYLOAD=(
+        -F "token=${PUSHOVER_TOKEN}"
+        -F "user=${PUSHOVER_USER}"
+        -F "title=${TITLE}"
+        -F "message=${MESSAGE}"
+    )
+
+    for arg in "$@"; do
+        if [[ "$arg" == *=* ]]; then
+            key="${arg%%=*}"
+            val="${arg#*=}"
+            PAYLOAD+=(-F "$key=$val")
+        fi
+    done
+
+    curl -s https://api.pushover.net/1/messages.json "${PAYLOAD[@]}" > /dev/null
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    send_pushover "$@"
+fi

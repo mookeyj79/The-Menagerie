@@ -1,0 +1,104 @@
+{% import 'generic_build_vars/_vault_macros.j2' as vmac %}
+
+{% set inp = _r_input_object if _r_input_object is mapping else {} %}
+{% set fields = _r_schema.keys() | list %}
+{% set user_fields = inp.keys() | list %}
+{% set defaults_fields = (_r_defaults.keys() | list) if (_r_defaults is mapping) else [] %}
+
+{# start with schema to establish allowed/known fields #}
+{% set obj = _r_schema | combine({}, recursive=True) %}
+
+{# apply defaults (lowest priority; vault & user can override) #}
+{% if _r_defaults is mapping %}
+  {% for f, dv in _r_defaults.items() %}
+    {% if f in fields %}
+      {% set _ = obj.update({ f: dv }) %}
+    {% endif %}
+  {% endfor %}
+{% endif %}
+
+{# overlay user-provided schema fields (including blanks) WITHOUT stringifying #}
+{% for f in fields %}
+  {% if f in user_fields %}
+    {% set vv = inp.get(f) %}
+    {% if _r_trim_user_values and (vv is string) %}
+      {% set vv = vv | trim %}
+    {% endif %}
+    {% set _ = obj.update({ f: vv }) %}
+  {% endif %}
+{% endfor %}
+
+{# decide if vault needed (boolean blank checks, no macro/string compare) #}
+{% set ns = namespace(need_vault=false) %}
+{% for f in fields %}
+  {% set cur = obj.get(f) %}
+  {% set cur_blank =
+      (cur is none)
+      or (cur is string and (cur | trim | length) == 0)
+      or (cur is mapping and (cur | length) == 0)
+      or (cur is sequence and (cur is not string) and (cur | length) == 0)
+  %}
+  {% if (f not in user_fields) and (cur_blank or (f in defaults_fields)) %}
+    {% set ns.need_vault = true %}
+  {% endif %}
+{% endfor %}
+
+{# fetch vault once if needed #}
+{% set v_secret = {} %}
+{% if ns.need_vault and (_r_vault_key | length > 0) %}
+  {% set raw = lookup(
+        'community.hashi_vault.vault_kv2_get',
+        _r_vault_key,
+        engine_mount_point=_r_vault_mount,
+        errors='ignore'
+      ) | default({}) %}
+  {% set v_secret = vmac.kv2_secret(raw) %}
+{% endif %}
+
+{# fill from vault ONLY for fields user did NOT provide:
+   - if blank
+   - OR if this field has a default (vault overrides defaults) #}
+{% for f in fields %}
+  {% set cur = obj.get(f) %}
+  {% set cur_blank =
+      (cur is none)
+      or (cur is string and (cur | trim | length) == 0)
+      or (cur is mapping and (cur | length) == 0)
+      or (cur is sequence and (cur is not string) and (cur | length) == 0)
+  %}
+  {% if (f not in user_fields) and (cur_blank or (f in defaults_fields)) %}
+    {% set vv = v_secret.get(f) %}
+    {% if vv is string %}
+      {% set vv = vv | trim %}
+    {% endif %}
+    {# only set if vault actually has a value #}
+    {% if vv is not none and ((vv is string and (vv | length) > 0) or (vv is not string)) %}
+      {% set _ = obj.update({ f: vv }) %}
+    {% endif %}
+  {% endif %}
+{% endfor %}
+
+{# transforms (object mode): apply ONLY if user did NOT provide the field #}
+{% if _r_transforms_object is mapping %}
+  {% for f, t in _r_transforms_object.items() %}
+    {% if f in fields and (f not in user_fields) %}
+      {% set cur = obj.get(f) %}
+      {% if cur is string and (cur | length) > 0 %}
+        {% if (t | string | lower) == 'base64decode' %}
+          {% set _ = obj.update({ f: (cur | b64decode) }) %}
+        {% endif %}
+      {% endif %}
+    {% endif %}
+  {% endfor %}
+{% endif %}
+
+{# optionally keep unknown input keys #}
+{% if _r_allow_unknown_input_keys %}
+  {% for k,v in inp.items() %}
+    {% if k not in fields %}
+      {% set _ = obj.update({ k: v }) %}
+    {% endif %}
+  {% endfor %}
+{% endif %}
+
+{{ obj | to_json }}

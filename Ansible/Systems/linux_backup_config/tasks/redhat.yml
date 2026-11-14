@@ -1,0 +1,10 @@
+---
+- name: Install required packages - RedHat
+  become: true
+  ansible.builtin.dnf:
+    name:
+      - rsync
+      - cron
+      - openssh-client
+    state: present
+    update_cache: true

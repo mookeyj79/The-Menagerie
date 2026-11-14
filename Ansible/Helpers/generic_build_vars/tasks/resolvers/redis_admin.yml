@@ -1,0 +1,21 @@
+---
+- name: Resolve 'redis_admin'
+  vars:
+    resolver_name: "redis_admin"
+    resolver_mode: "object"
+
+    resolver_input_object: "{{ generic_build_vars_inputs.redis_admin | default({}) }}"
+
+    resolver_schema:
+      password: ""
+      username: ""
+
+    resolver_vault_key: "internal_services/redis/admin"
+    resolver_vault_mount: "{{ generic_build_vars_vault_mount }}"
+
+    resolver_enable_asserts: true
+    resolver_asserts_object:
+      password: string
+      username: string
+
+  ansible.builtin.include_tasks: base.yml

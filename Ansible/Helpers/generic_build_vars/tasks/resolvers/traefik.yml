@@ -1,0 +1,27 @@
+---
+- name: Resolve 'traefik'
+  vars:
+    resolver_name: "traefik"
+    resolver_mode: "object"
+
+    resolver_input_object: "{{ generic_build_vars_inputs.traefik | default({}) }}"
+
+    resolver_schema:
+      password: ""
+      ssh_private_key: ""
+      ssh_public_key: ""
+
+    resolver_vault_key: "users/traefik"
+    resolver_vault_mount: "{{ generic_build_vars_vault_mount }}"
+
+    resolver_transforms_object:
+      ssh_private_key: base64decode
+      ssh_public_key: base64decode
+
+    resolver_enable_asserts: true
+    resolver_asserts_object:
+      password: string
+      ssh_private_key: string
+      ssh_public_key: string
+
+  ansible.builtin.include_tasks: base.yml

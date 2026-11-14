@@ -1,0 +1,3 @@
+---
+apps_dir: /opt/apps
+secrets_dir: /opt/secrets

@@ -1,0 +1,67 @@
+#!/usr/bin/env sh
+set -e
+
+{% if lego.le_use_staging %}
+LEGO_EXTERNAL_ACME_SERVER="https://acme-staging-v02.api.letsencrypt.org/directory"
+{% else %}
+LEGO_EXTERNAL_ACME_SERVER="https://acme-v02.api.letsencrypt.org/directory"
+{% endif %}
+LEGO_INTERNAL_ACME_SERVER="{{ lego.internal_server }}"
+
+echo "[lego] Starting certificate issuance / renewal"
+echo "[lego] External ACME server: ${LEGO_EXTERNAL_ACME_SERVER}"
+echo "[lego] Internal ACME server: ${LEGO_INTERNAL_ACME_SERVER}"
+
+# Let's Encrypt (external)
+echo "[lego] Ensuring external certificates"
+
+{% for domain in lego.external_domains %}
+echo "[lego] External Domain: {{ domain.domain }}"
+export CF_DNS_API_TOKEN_FILE="/var/run/{{ domain.domain }}_api_token"
+lego \
+  --server "${LEGO_EXTERNAL_ACME_SERVER}" \
+  --dns cloudflare \
+  --dns-resolvers 1.1.1.1 \
+  --email "{{ domain.email }}" \
+  --domains "{{ domain.domain }}" \
+  --domains "*.{{ domain.domain }}" \
+  --path "/certs/external/{{ domain.domain }}" \
+  --accept-tos \
+  run \
+  --post-hook "/scripts/post-hook.sh"
+echo ""
+{% endfor %}
+
+# Internal (step-ca)
+echo "[lego] Ensuring internal certificates"
+
+{% for domain in lego.internal_domains %}
+export CF_DNS_API_TOKEN_FILE="/var/run/{{ domain.domain }}_api_token"
+echo "[lego] Internal Domain: {{ domain.domain }}"
+lego \
+  --server "${LEGO_INTERNAL_ACME_SERVER}" \
+  --email "{{ domain.email }}" \
+  --domains "{{ domain.domain }}" \
+  --domains "*.{{ domain.domain }}" \
+  --path "/certs/internal/{{ domain.domain }}" \
+  --accept-tos \
+  run \
+  --post-hook "/scripts/post-hook.sh"
+echo ""
+{% endfor %}
+
+echo "[lego] Initial run complete"
+
+# Renewal loop
+while true; do
+  echo "[lego] Checking for renewals"
+
+{% for domain in lego.external_domains %}
+  lego --path "/certs/external/{{ domain.domain }}" renew --post-hook "/scripts/post-hook.sh" || true
+{% endfor %}
+{% for domain in lego.internal_domains %}
+  lego --path "/certs/internal/{{ domain.domain }}" renew --post-hook "/scripts/post-hook.sh" || true
+{% endfor %}
+
+  sleep 12h
+done

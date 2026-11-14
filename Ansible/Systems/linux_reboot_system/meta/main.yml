@@ -1,0 +1,21 @@
+---
+galaxy_info:
+  namespace: mookeyj
+  role_name: linux_reboot_system
+  author: MookeyJ
+  description: Reboots system if required.
+  license: MIT
+  min_ansible_version: '2.13'
+
+  platforms:
+    - name: Debian
+      versions: [bullseye, bookworm]
+    - name: Ubuntu
+      version: [focal, jammy, noble]
+    - name: EL
+      versions: ['8', '9']
+    - name: Alpine
+      versions: [all]
+
+dependencies: []
+allow_duplicates: true

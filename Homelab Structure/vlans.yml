@@ -1,0 +1,200 @@
+# =====================================================================================================
+# vlans.yml
+# =====================================================================================================
+# Schema:
+#   name        : short kebab-case identifier (used for cross-referencing)
+#   description : human-readable purpose
+#   dhcp         : { enabled, pool, lease_time } — top-level default; a subnet
+#                  entry may override this if one router's segment differs
+#                  (e.g. no DHCP on a transit-only subnet).
+#   id          : 802.1Q VLAN ID
+#   notes       : free-form operational notes
+#   subnets     : list of { cidr, gateway_host, gateway_interface, dhcp? }.
+#                 Every VLAN uses this list, even when there's only one
+#                 subnet — single shape, no exceptions. Most VLANs have
+#                 exactly one entry; VLANs routed (not bridged) across
+#                 multiple per-router segments have one entry per router.
+#
+#                 cidr              : network range in CIDR notation
+#                 gateway_host      : systems.yml hostname serving as gateway
+#                                     for this subnet. Omit for transit/
+#                                     no-gateway nets.
+#                 gateway_interface : interface name on gateway_host to
+#                                     resolve the gateway IP from. Required
+#                                     when gateway_host has more than one
+#                                     interface. The literal gateway IP is
+#                                     never written here directly — it's
+#                                     always resolved through systems.yml,
+#                                     same pattern as dns.yml's host/interface.
+#                 dhcp              : optional; overrides the VLAN-level dhcp
+#                                     block for this specific subnet.
+#                                     Default: .enabled: false
+# =====================================================================================================
+
+vlans:
+  # ---------------------------------------------------------------------------------------------------
+  # Architecture
+  # ---------------------------------------------------------------------------------------------------
+  - name: architecture-1
+    description: OSPF point-to-point between router1 and router2
+    id: 301
+    subnets:
+      - cidr: 192.168.3.0/30
+
+  - name: architecture-2
+    description: OSPF point-to-point between router1 and router3
+    id: 302
+    subnets:
+      - cidr: 192.168.3.4/30
+
+  - name: architecture-3
+    description: OSPF point-to-point between router2 and router3
+    id: 303
+    subnets:
+      - cidr: 192.168.3.8/30
+
+  # ---------------------------------------------------------------------------------------------------
+  # Management
+  # ---------------------------------------------------------------------------------------------------
+  - name: hardware-management
+    description: Out-of-band management for routers, switches, firewalls, and access points
+    id: 101
+    subnets:
+      - cidr: 10.0.1.0/28
+        gateway_host: router1
+        gateway_interface: VLAN101
+      - cidr: 10.0.1.16/28
+        gateway_host: router2
+        gateway_interface: VLAN101
+      - cidr: 10.0.1.32/28
+        gateway_host: router3
+        gateway_interface: FastEthernet2/0.101
+
+  - name: server-management
+    description: Out-of-band management for servers and hypervisors (iLO, DRAC, IPMI)
+    id: 102
+    subnets:
+      - cidr: 10.0.2.0/28
+        gateway_host: router1
+        gateway_interface: VLAN102
+      - cidr: 10.0.2.16/28
+        gateway_host: router2
+        gateway_interface: VLAN102
+
+  - name: power-management
+    description: PDU and UPS coordination network
+    id: 103
+    subnets:
+      - cidr: 10.0.3.0/29
+        gateway_host: router2
+        gateway_interface: VLAN103
+
+  # ---------------------------------------------------------------------------------------------------
+  # DMZ
+  # ---------------------------------------------------------------------------------------------------
+  - name: dmz-servers
+    description: Public-facing service hosts
+    id: 4
+    subnets:
+      - cidr: 192.168.4.0/26
+        gateway_host: router1
+        gateway_interface: VLAN4
+
+  # ---------------------------------------------------------------------------------------------------
+  # Internal
+  # ---------------------------------------------------------------------------------------------------
+  - name: internal-servers
+    description: Core internal infrastructure services
+    id: 16
+    subnets:
+      - cidr: 192.168.16.0/28
+        gateway_host: router2
+        gateway_interface: VLAN16
+
+  - name: internal-users
+    description: Trusted user workstations and personal devices
+    id: 17
+    subnets:
+      - cidr: 192.168.17.0/24
+        dhcp:
+          enabled: true
+          lease_time: 24h
+          pool: 192.168.17.128-192.168.17.254
+        gateway_host: router2
+        gateway_interface: VLAN17
+
+  - name: internal-guests
+    description: Guest wireless; isolated from internal services
+    id: 18
+    subnets:
+      - cidr: 192.168.18.0/24
+        dhcp:
+          enabled: true
+          lease_time: 6h
+          pool: 192.168.18.10-192.168.18.254
+        gateway_host: router2
+        gateway_interface: VLAN18
+
+  - name: internal-smarthome
+    description: IoT devices, smart home hubs
+    id: 19
+    subnets:
+      - cidr: 192.168.19.0/26
+        dhcp:
+          enabled: true
+          lease_time: 6h
+          pool: 192.168.19.50-192.168.19.62
+        gateway_host: router2
+        gateway_interface: VLAN19
+      - cidr: 192.168.19.64/28
+        dhcp:
+          enabled: true
+          lease_time: 6h
+          pool: 192.168.19.70-192.168.19.78
+        gateway_host: router3
+        gateway_interface: VLAN19
+
+  - name: internal-devices
+    description: Printers and shared peripherals
+    id: 20
+    subnets:
+      - cidr: 192.168.20.0/26
+        dhcp:
+          enabled: true
+          lease_time: 6h
+          pool: 192.168.20.50-192.168.20.62
+        gateway_host: router2
+        gateway_interface: VLAN20
+
+  - name: internal-retronet
+    description: Retro computers and legacy gaming consoles, dialup-accessible
+    id: 21
+    notes: Served by Router3 (Cisco 3825); also handles PPP over async modem.
+    subnets:
+      - cidr: 192.168.21.0/26
+        dhcp:
+          enabled: true
+          lease_time: 6h
+          pool: 192.168.21.50-192.168.21.62
+        gateway_host: router3
+        gateway_interface: VLAN21
+
+  - name: internal-surveillance
+    description: Surveillance cameras and NVR
+    id: 22
+    subnets:
+      - cidr: 192.168.22.0/27
+        dhcp:
+          enabled: true
+          lease_time: 6h
+          pool: 192.168.22.20-192.168.22.30
+        gateway_host: router2
+        gateway_interface: VLAN22
+
+  - name: internal-devops
+    description: Internal CI/CD runners and platform tooling
+    id: 23
+    subnets:
+      - cidr: 192.168.23.0/29
+        gateway_host: router2
+        gateway_interface: VLAN23

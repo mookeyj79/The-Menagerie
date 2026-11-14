@@ -1,0 +1,49 @@
+---
+- name: Install Step-CA CLI - Debian
+  become: true
+  block:
+    - name: Ensure Alpine community repo is enabled
+      ansible.builtin.lineinfile:
+        path: /etc/apk/repositories
+        regexp: '^https?://.*/v{{ ansible_distribution_version.split(".")[0] }}\.{{ ansible_distribution_version.split(".")[1] }}/community'
+        line: |
+          'https://dl-cdn.alpinelinux.org/alpine/v{{ ansible_distribution_version.split(".")[0] }}.{{ ansible_distribution_version.split(".")[1] }}/community'
+        create: false
+
+    - name: Install step-cli (latest)
+      community.general.apk:
+        name: step-cli
+        state: present
+        update_cache: true
+
+    - name: Create trust store directory
+      ansible.builtin.file:
+        path: "/usr/local/share/ca-certificates"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Fetch Step-CA root
+      ansible.builtin.command: >-
+        step ca root
+        --ca-url {{ ca_server.url }}
+        --fingerprint {{ ca_server.fingerprint }}
+      register: root_pem
+      changed_when: false
+
+    - name: Validate PEM content
+      ansible.builtin.assert:
+        that:
+          - root_pem.stdout is search('-----BEGIN CERTIFICATE-----')
+          - root_pem.stdout is search('-----END CERTIFICATE-----')
+        fail_msg: "Fetched content did not look like a PEM certificate. Check ca URL/fingerprint."
+
+    - name: Install/refresh Step-CA root certificate
+      ansible.builtin.copy:
+        content: "{{ root_pem.stdout }}"
+        dest: "/usr/local/share/ca-certificates/step-ca-root.crt"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Update system trust - Alpine

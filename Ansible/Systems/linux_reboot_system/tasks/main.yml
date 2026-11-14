@@ -1,0 +1,24 @@
+---
+- name: Ensure this is a Linux system
+  ansible.builtin.assert:
+    that: ansible_facts['system'] == 'Linux'
+    fail_msg: "This role should only run on Linux systems."
+    success_msg: "Confirmed: Linux system."
+
+- name: Check if reboot is required - Debian
+  ansible.builtin.include_tasks: debian.yml
+  when: ansible_facts["os_family"] == "Debian"
+
+- name: Check if reboot is required - RedHat
+  ansible.builtin.include_tasks: redhat.yml
+  when: ansible_facts["os_family"] == "RedHat"
+
+- name: Check if reboot is required - Alpine
+  ansible.builtin.include_tasks: alpine.yml
+  when: ansible_facts["os_family"] == "Alpine"
+
+- name: Reboot system
+  become: true
+  ansible.builtin.reboot:
+    reboot_timeout: "{{ linux_reboot_system_timeout }}"
+  when: linux_reboot_system_force or reboot_required

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+source /opt/scripts/libs/colors.shlib
+
+if [ -n "$STY" ]; then
+    printf "${YELLOW}[!]${RESET} You are running inside a screen session: $STY\n"
+    exit 1
+else
+    printf "${GREEN}[*]${RESET} Not inside a screen session.\n"
+    exit 0
+fi

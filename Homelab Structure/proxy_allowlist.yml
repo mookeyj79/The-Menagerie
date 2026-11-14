@@ -1,0 +1,33 @@
+# ============================================================================
+# proxy_allowlist.yml - Application-layer egress policy for bastion1's proxy
+# ============================================================================
+# Answers "once connected to bastion1's proxy, which domains is this group
+# actually allowed to reach." Separate from fw_rules.yml (which only grants
+# network-layer reach to the proxy port itself) because domain matching is
+# owned by the proxy software, not the router.
+#
+# ============================================================================
+# Schema
+# ============================================================================
+#
+#   rules            : list
+#     name              : kebab-case unique identifier
+#     src               : fw_groups.yml name
+#     allowed_domains   : list of domain patterns (exact or wildcard, e.g.
+#                         "*.example.com")
+#     notes             : optional; structural context only
+#
+# ============================================================================
+
+rules:
+  - name: hardware-mgmt-updates
+    src: Hardware_Management
+    allowed_domains: []
+
+  - name: server-mgmt-updates
+    src: Server_Management
+    allowed_domains: []
+
+  - name: power-mgmt-updates
+    src: Power_Management
+    allowed_domains: []

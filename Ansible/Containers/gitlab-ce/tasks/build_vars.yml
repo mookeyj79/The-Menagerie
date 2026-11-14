@@ -1,0 +1,72 @@
+---
+### Primary User ###
+- name: Set variable - '_primary_user'
+  ansible.builtin.set_fact:
+    _primary_user:
+      username: >-
+        {% if primary_user is defined and primary_user.username is defined %}
+        {{- primary_user.username -}}
+        {% else %}
+        {{- lookup('community.hashi_vault.hashi_vault', 'secret=secret/data/users/primary_user field=username') -}}
+        {% endif %}
+
+- name: Build 'var_primary_user' dictionary
+  ansible.builtin.set_fact:
+    var_primary_user:
+      username: "{{ _primary_user.username }}"
+
+- name: Verify 'var_primary_user'
+  ansible.builtin.assert:
+    that:
+      - var_primary_user.username is string
+    fail_msg: "Unable to verify 'var_primary_user'!"
+
+### Secrets ###
+- name: Set variable - '_gitlab_secrets'
+  ansible.builtin.set_fact:
+    _gitlab_secrets:
+      postgresql:
+        password: >-
+          {% if gitlab is defined and gitlab.postgresql is defined and gitlab.postgresql.password %}
+          {{- gitlab.postgresql.password -}}
+          {% else %}
+          {{- lookup('hashi_vault', 'secret=secret/data/systems/' ~ (inventory_hostname | lower) ~ '/postgresql/gitlab field=password') -}}
+          {% endif %}
+        username: >-
+          {% if gitlab is defined and gitlab.postgresql is defined and gitlab.postgresql.username %}
+          {{- gitlab.postgresql.username -}}
+          {% else %}
+          {{- lookup('hashi_vault', 'secret=secret/data/systems/' ~ (inventory_hostname | lower) ~ '/postgresql/gitlab field=username') -}}
+          {% endif %}
+      redis:
+        password: >-
+          {% if gitlab is defined and gitlab.redis is defined and gitlab.redis.password %}
+          {{- gitlab.redis.password -}}
+          {% else %}
+          {{- lookup('hashi_vault', 'secret=secret/data/systems/' ~ (inventory_hostname | lower) ~ '/redis/gitlab field=password') -}}
+          {% endif %}
+        username: >-
+          {% if gitlab is defined and gitlab.redis is defined and gitlab.redis.username %}
+          {{- gitlab.redis.username -}}
+          {% else %}
+          {{- lookup('hashi_vault', 'secret=secret/data/systems/' ~ (inventory_hostname | lower) ~ '/redis/gitlab field=username') -}}
+          {% endif %}
+
+- name: Build 'var_gitlab_secrets' dictionary
+  ansible.builtin.set_fact:
+    var_gitlab_secrets:
+      postgresql:
+        password: "{{ _gitlab_secrets.postgresql.password }}"
+        username: "{{ _gitlab_secrets.postgresql.username }}"
+      redis:
+        password: "{{ _gitlab_secrets.redis.password }}"
+        username: "{{ _gitlab_secrets.redis.username }}"
+
+- name: Verify 'var_gitab_secrets'
+  ansible.builtin.assert:
+    that:
+      - var_gitlab_secrets.postgresql.password is string
+      - var_gitlab_secrets.postgresql.username is string
+      - var_gitlab_secrets.redis.password is string
+      - var_gitlab_secrets.redis.username is string
+    fail_msg: "Unable to verify 'var_gitlab_secrets'!"

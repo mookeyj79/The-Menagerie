@@ -1,0 +1,13 @@
+---
+- name: "Update system - Alpine"
+  become: true
+  block:
+    - name: Update repository cache
+      community.general.apk:
+        update_cache: true
+      when: linux_update_system_update_cache
+
+    - name: Upgrade packages
+      community.general.apk:
+        upgrade: true
+      when: linux_update_system_full_upgrade

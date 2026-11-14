@@ -1,0 +1,5 @@
+set constantshow
+set indicator
+set tabsize 4
+set tabstospaces
+unset breaklonglines

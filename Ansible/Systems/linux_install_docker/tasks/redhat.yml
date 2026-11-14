@@ -1,0 +1,46 @@
+---
+- name: Install Docker - RedHat
+  become: true
+  block:
+    - name: Determine system information
+      ansible.builtin.set_fact:
+        _system_info:
+          distro: >-
+            {% if (ansible_facts.distribution | lower) in ['redhat', 'rhel'] %}
+              rhel
+            {% else %}
+              centos
+            {% endif %}
+          release: "{{ ansible_facts.distribution_major_version }}"
+          arch: "{{ ansible_facts.architecture }}"
+
+    - name: Install required packages
+      ansible.builtin.dnf:
+        name:
+          - ca-certificates
+          - curl
+        state: present
+        update_cache: true
+
+    - name: Add Docker RPM repository
+      ansible.builtin.yum_repository:
+        name: docker-ce
+        description: Docker-CE Packages
+        baseurl: |
+          "https://download.docker.com/linux/{ _system_info.distro }/{ _system_info.release }/{ _system_info.arch }/stable"
+        enabled: true
+        gpgcheck: true
+        repo_gpgcheck: false
+        gpgkey: "https://download.docker.com/linux/{ _system_info.distro }/gpg"
+        state: present
+
+    - name: Install Docker
+      ansible.builtin.dnf:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true

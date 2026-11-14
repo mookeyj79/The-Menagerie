@@ -1,0 +1,59 @@
+# ============================================================================
+# bastion_access.yml - Identity and authorization policy for bastion1
+# ============================================================================
+# Answers "which human, authenticated how, may reach what onward." Network
+# reachability is fw_groups.yml/fw_rules.yml's concern - an identity listed
+# here still needs a matching fw_rules.yml accept rule for the reach to
+# actually work end to end.
+#
+# ============================================================================
+# Schema
+# ============================================================================
+#
+#   identity_groups     : reusable identity bundles
+#     name                : identifier
+#     description         : one-line purpose
+#     authorized_targets  : list of fw_groups.yml names every member may
+#                           reach onward
+#
+#   identities           : individual humans with bastion accounts
+#     user                : short username
+#     totp_enrolled       : bool
+#     ssh_pubkey_ref      : path to this person's own public key; used only
+#                           for authenticating TO bastion, never distributed
+#                           onward
+#     member_of           : optional list of identity_groups names
+#     authorized_targets  : list of fw_groups.yml names, additive to
+#                           whatever member_of already grants
+#     state               : active | disabled
+#
+#   service_identity      : bastion1's own onward-facing keypair; single
+#                           entry. This is what every target authorizes,
+#                           not any individual human key.
+#     public_key_ref        : path to bastion1's onward service public key
+#
+# ============================================================================
+
+identity_groups:
+  - name: senior_admins
+    description: Full administrative access across all managed segments
+    authorized_targets:
+      - Hardware_Management
+      - Server_Management
+      - Power_Management
+      - Internal_Servers
+      - Internal_Devices
+      - Internal_DevOps
+      - DMZ_Servers
+      - Vaults
+
+identities:
+  - user: mike
+    totp_enrolled: false
+    ssh_pubkey_ref: ~/.sops/keys/mike_bastion.pub
+    member_of: [senior_admins]
+    authorized_targets: []
+    state: active
+
+service_identity:
+  public_key_ref: ~/.sops/keys/bastion1_service.pub

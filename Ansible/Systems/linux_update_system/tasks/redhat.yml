@@ -1,0 +1,25 @@
+---
+- name: "Update system - RedHat"
+  become: true
+  block:
+    - name: Update repository cache
+      ansible.builtin.dnf:
+        update_cache: "{{ linux_update_system_update_cache }}"
+      when: linux_update_system_update_cache
+
+    - name: Upgrade packages
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+      when: linux_update_system_full_upgrade
+      # noqa: package-latest
+
+    - name: Remove unused packages
+      ansible.builtin.dnf:
+        autoremove: true
+      when: linux_update_system_auto_remove
+
+    - name: Clean package caches
+      ansible.builtin.command: dnf -y clean all
+      changed_when: false
+      when: linux_update_system_clean_cache

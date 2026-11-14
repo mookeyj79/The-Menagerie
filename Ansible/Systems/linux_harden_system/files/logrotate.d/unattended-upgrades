@@ -1,0 +1,9 @@
+/var/log/unattended-upgrades/*.log {
+    size 5M
+    rotate 4
+    compress
+    missingok
+    notifempty
+    delaycompress
+    copytruncate
+}

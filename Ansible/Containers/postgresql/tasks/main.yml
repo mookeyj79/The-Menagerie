@@ -1,0 +1,61 @@
+---
+- name: PostgreSQL Preparation
+  become: true
+  block:
+    - name: Create PostgreSQL User
+      ansible.builtin.include_role:
+        name: linux_manage_accounts
+      vars:
+        linux_manage_accounts_users:
+          - name: postgresql
+            comment: PostgreSQL User
+            shell: /sbin/nologin
+            create_home: false
+            uid: 2003
+            append: false
+
+    - name: Check if Docker is installed
+      ansible.builtin.include_role:
+        name: generic_check_docker
+
+    - name: Create PostgreSQL directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: postgresql
+        group: docker
+        mode: "0770"
+      loop:
+        - "{{ apps_dir }}"
+        - "{{ apps_dir }}/postgresql"
+        - "{{ apps_dir }}/postgresql/config"
+        - "{{ apps_dir }}/postgresql/data"
+        - "{{ apps_dir }}/postgresql/logs"
+
+    - name: Check if PostgreSQL config already exists
+      ansible.builtin.stat:
+        path: "{{ apps_dir }}/postgresql/config/postgresql.conf"
+      register: pg_conf
+
+    - name: Check if HBA config already exists
+      ansible.builtin.stat:
+        path: "{{ apps_dir }}/postgresql/config/pg_hba.conf"
+      register: hba_conf
+
+    - name: Copy PostgreSQL config file
+      ansible.builtin.copy:
+        src: "{{ role_path }}/files/postgresql.conf"
+        dest: "{{ apps_dir }}/postgresql/config/postgresql.conf"
+        owner: postgresql
+        group: docker
+        mode: "0750"
+      when: not pg_conf.stat.exists
+
+    - name: Copy HBA config file
+      ansible.builtin.copy:
+        src: "{{ role_path }}/files/pg_hba.conf"
+        dest: "{{ apps_dir }}/postgresql/config/pg_hba.conf"
+        owner: postgresql
+        group: docker
+        mode: "0750"
+      when: not hba_conf.stat.exists

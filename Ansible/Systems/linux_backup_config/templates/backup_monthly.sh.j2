@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+
+###############################
+# Linux Monthly Backup Script #
+###############################
+
+set -euo pipefail
+
+source /opt/scripts/pushover_notify/pushover_notify.shlib
+
+SOURCE_DIRS=(
+{% for path in generic_build_vars_return.backup.sources %}
+  "{{ path }}"
+{% endfor %}
+)
+
+# Local Backup Information
+LOCAL_BACKUP_DIR="/mnt/backup"
+SNAPSHOT_FILE="$LOCAL_BACKUP_DIR/state.snar"
+SNAPSHOT_BACKUP_FILE="$LOCAL_BACKUP_DIR/state.snar.bak"
+TMP_SNAPSHOT_FILE="$LOCAL_BACKUP_DIR/state.snar.tmp"
+TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
+BACKUP_FILE="$LOCAL_BACKUP_DIR/${HOSTNAME}_${TIMESTAMP}.tar.gz"
+MAX_RETRIES=3
+SUCCESS=false
+TMP_DIR="/tmp/tmp_backup_files"
+
+# Remote Backup Information
+REMOTE_USER="{{ generic_build_vars_return.backup.username }}"
+REMOTE_HOST="{{ generic_build_vars_return.backup.server }}"
+REMOTE_TARGET="{{ generic_build_vars_return.backup.target }}"
+SSH_KEY="{{ generic_build_vars_return.primary_user.home }}/.ssh/backup_key"
+
+# Rsync Settings
+BWLIMIT={{ generic_build_vars_return.backup.bwlimit }}
+COMPRESS={{ generic_build_vars_return.backup.compress }}
+MAX_RETRIES={{ generic_build_vars_return.backup.max_retries }}
+RSYNC_LOG="{{ generic_build_vars_return.backup.rsync_log }}"
+
+SSH_OPTS=(-i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="{{ generic_build_vars_return.primary_user.home }}/.ssh/known_hosts")
+if [[ "$BWLIMIT" != "0" ]]; then
+  RSYNC_BW=(--bwlimit="$BWLIMIT")
+else
+  RSYNC_BW=()
+fi
+RSYNC_SSH=(ssh "${SSH_OPTS[@]}")
+LOCAL_NICE="ionice -c2 -n7 nice -n 19"
+
+# Prepare remote (expand locally; quote safely)
+prepare_remote() {
+  ssh "${SSH_OPTS[@]}" "${REMOTE_USER}@${REMOTE_HOST}" \
+    "mkdir -p -- \"${REMOTE_TARGET}\" && chmod 0750 -- \"${REMOTE_TARGET}\""
+}
+
+# Clone local backup directory to remote (mirror)
+sync_backup_dir() {
+  local COMPRESS_FLAG=()
+  if (( COMPRESS == 1 )); then
+    COMPRESS_FLAG=(--compress)
+  fi
+
+  # Trailing slash on source ensures we sync contents into REMOTE_TARGET/
+  ${LOCAL_NICE} rsync -a --delete "${RSYNC_BW[@]}" "${COMPRESS_FLAG[@]}" \
+    -e "$(printf '%q ' "${RSYNC_SSH[@]}")" \
+    "${LOCAL_BACKUP_DIR}/" \
+    "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_TARGET}/" >> "$RSYNC_LOG" 2>&1
+}
+
+# Detect if Docker is installed
+if command -v docker >/dev/null 2>&1; then
+  DOCKER_INSTALLED=true
+else
+  DOCKER_INSTALLED=false
+fi
+
+# Stop running containers if Docker is installed
+if [[ "$DOCKER_INSTALLED" == true ]]; then
+  containers=$(docker ps -q)
+  if [[ -n "$containers" ]]; then
+    docker stop $containers
+  fi
+fi
+
+send_pushover "Monthly Backup Started" "Monthly backup started at $TIMESTAMP."
+mkdir -p $TMP_DIR
+
+mv $LOCAL_BACKUP_DIR/* $TMP_DIR/
+
+tar --create \
+    --use-compress-program="gzip -9" \
+    --file="$BACKUP_FILE" \
+    --listed-incremental="$SNAPSHOT_FILE" \
+    --preserve-permissions \
+    --same-owner \
+    "${SOURCE_DIRS[@]}" || {
+      rm -rf $LOCAL_BACKUP_DIR/*
+      mv $TMP_DIR/* $LOCAL_BACKUP_DIR/
+      send_pushover "Monthly Backup Failed" "Monthly backup failed. Rolled back backups." priority=1 sound=siren
+      exit 1
+    }
+
+# Restart containers if Docker is installed
+if [[ "$DOCKER_INSTALLED" == true ]]; then
+  if [[ -n "$containers" ]]; then
+    docker start $containers
+  fi
+fi
+
+# Ensure remote path exists
+if ! prepare_remote; then
+  send_pushover "Daily Backup Failed" "Could not prepare remote path ${REMOTE_HOST}:${REMOTE_TARGET}."
+  exit 1
+fi
+
+# Clone local backup directory → remote (mirror with --delete)
+if sync_backup_dir; then
+  echo "Mirrored ${LOCAL_BACKUP_DIR}/ → ${REMOTE_HOST}:${REMOTE_TARGET}/"
+  send_pushover "Monthly Backup Completed" "Incremental archive ${BACKUP_FILE} created and directory mirrored."
+else
+  send_pushover "Monthly Backup Failed" "Directory mirror to ${REMOTE_HOST}:${REMOTE_TARGET} failed." priority=1 sound=siren
+  exit 1
+fi
+
+rm -rf "$TMP_DIR"
+  

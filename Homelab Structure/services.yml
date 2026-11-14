@@ -1,0 +1,498 @@
+# ============================================================================
+# services.yml - Service-to-host placement registry
+# ============================================================================
+# Documentation-grade source of truth for what runs where, when, and how.
+# May evolve to drive Compose rendering in a later phase; currently
+# reference-only.
+#
+# Consumed by:
+#   - Documentation generation (what runs where, in what phase, depending on what)
+#   - Dependency analysis (if X goes down, what breaks?)
+#   - Future: Compose file rendering, service discovery
+#
+# Schema:
+#   name           : service identity, lowercase-hyphen, unique across fleet
+#   description    : one-line human-readable purpose
+#   state          : present | planned | decommissioned
+#   phase          : integer phase number when this service deploys (-1..7+)
+#   host           : hostname from systems.yml where this service runs
+#   stack          : native | docker_compose | systemd
+#                      - native: installed via apt/omnibus package (e.g. GitLab)
+#                      - docker_compose: managed by Compose on a docker_host
+#                      - systemd: Ansible-managed binary as a systemd unit
+#   depends_on     : list of other service `name`s this requires
+#   integrations   :
+#     vault        : bool - fetches secrets from Vault via Vault Agent
+#     stepca       : bool - holds TLS cert(s) from step-ca
+#     authentik    : bool - SSO/OIDC integration with Authentik
+#     backup       : nightly | hourly | weekly | none
+#   exposure       :
+#     dns_names    : list of short names (matched against dns_records.yml or
+#                      auto-derived host hostnames); omit if direct hostname is fine
+#     ports        : listening ports (informational; helps document attack surface)
+#     via_traefik  : bool - is this service fronted by a Traefik instance?
+#   notes          : operational notes (block scalar `|` for multi-line)
+#
+# VALIDATION CONTRACT:
+#   - Every `host` value must match a hostname in systems.yml
+#   - Every `depends_on` entry must match another service `name`
+#   - Every `exposure.dns_names` entry must either:
+#       (a) match a record in dns_records.yml, OR
+#       (b) match a hostname in systems.yml (auto-derived A record)
+# ============================================================================
+
+services:
+
+  # ==========================================================================
+  # Phase 0 - Trusted base
+  # ==========================================================================
+
+  - name: gitlab
+    description: SCM, CI/CD, container registry
+    state: planned
+    phase: 0
+    host: devops1
+    stack: native
+    depends_on: []
+    integrations:
+      vault: true
+      stepca: true
+      authentik: true        # federated in Phase 2; not at Phase 0 first-boot
+      backup: nightly
+    exposure:
+      dns_names:
+        - gitlab
+        - registry.gitlab
+      ports: [22, 80, 443]
+      via_traefik: false      # GitLab Omnibus serves its own TLS; not Traefik-fronted
+    notes: |
+      Phase 0 anchor. Initial deploy uses GitLab Omnibus self-signed cert until
+      step-ca is operational; cert swapped on first run.
+      SSH push (port 22) is direct-to-host. Web UI (443) and registry are
+      reachable via the same hostname.
+      Backup target: File1, mirrored to Backup1.
+
+  - name: vault
+    description: HashiCorp Vault (secrets only - no PKI engine)
+    state: planned
+    phase: 0
+    host: vault1
+    stack: native
+    depends_on: []
+    integrations:
+      vault: false           # it IS Vault
+      stepca: true
+      authentik: false       # uses native auth methods (AppRole, etc.)
+      backup: nightly
+    exposure:
+      dns_names: [vault]
+      ports: [8200]
+      via_traefik: false     # Vault serves its own TLS API
+    notes: |
+      Phase 0 anchor. KV v2 + AppRole + AWS KMS auto-unseal.
+      PKI engine deliberately disabled per ADR-001 (CA lives at stepca1).
+      Recovery keys Shamir-split across 3 physical locations.
+
+  - name: stepca
+    description: step-ca certificate authority (X.509 + SSH)
+    state: planned
+    phase: 0
+    host: stepca1
+    stack: native
+    depends_on: []
+    integrations:
+      vault: false           # offline root, intermediate provisioned at install
+      stepca: false          # it IS step-ca
+      authentik: true        # OIDC provisioner federates to Authentik (Phase 2)
+      backup: nightly
+    exposure:
+      dns_names: [ca]
+      ports: [443, 9000]
+      via_traefik: false     # step-ca serves its own TLS
+    notes: |
+      Phase 0 anchor. ACME, JWK, OIDC provisioners enabled.
+      Authentik OIDC provisioner config has placeholder URL until Phase 2.
+      Root CA generated offline, key on USB + hardware token.
+
+  - name: file-server
+    description: SMB shares, Syncthing, AD-integrated home directories
+    state: planned
+    phase: 0
+    host: file1
+    stack: systemd
+    depends_on: [dc1-samba]  # for AD-integrated mode in Phase 2 full image
+    integrations:
+      vault: true
+      stepca: true
+      authentik: false       # uses AD auth via dc1
+      backup: nightly
+    exposure:
+      ports: [139, 445, 22000, 21027]
+      via_traefik: false
+    notes: |
+      Phase 0 anchor. Bootstrap image: standalone Samba. Full image (Phase 2):
+      AD-integrated with Folder Redirection share for Windows clients.
+      Holds bootstrap artifacts, backup-restore staging, and is itself
+      backed up nightly to Backup1.
+      Direct SMB access via file1.mikewashere.lan; no Traefik alias needed.
+
+  - name: gitlab-runner-internal
+    description: First GitLab Runner, internal-devops tag, Docker executor
+    state: planned
+    phase: 0
+    host: runner1
+    stack: docker_compose
+    depends_on: [gitlab]
+    integrations:
+      vault: true
+      stepca: true
+      authentik: false
+      backup: none           # stateless; can be rebuilt
+    exposure:
+      ports: []              # no inbound services; runner polls GitLab outbound
+      via_traefik: false
+    notes: |
+      Phase 0 anchor. Tagged `internal-devops` for trust-tier separation.
+      A second runner (`dmz-devops` tag) added in Phase 3 for jobs deploying
+      to DMZ-tier services.
+
+  - name: bastion-sshd
+    description: Hardened SSH gateway with step-ca cert validation
+    state: planned
+    phase: 0
+    host: bastion1
+    stack: systemd
+    depends_on: [stepca]
+    integrations:
+      vault: true
+      stepca: true
+      authentik: true        # SSH cert flow via Authentik OIDC (Phase 2)
+      backup: weekly         # configuration only; auth state is short-lived
+    exposure:
+      ports: [22]
+      via_traefik: false
+    notes: |
+      Phase 0 anchor on physical Pi5. Pre-Phase-2: validates against
+      pre-distributed pubkeys. Post-Phase-2: full step-ca SSH cert flow
+      with Authentik OIDC. Per ADR-022 and ADR-024.
+
+  # ==========================================================================
+  # Phase 2 - Identity
+  # ==========================================================================
+
+  - name: dc1-samba
+    description: Samba Active Directory Domain Controller
+    state: planned
+    phase: 2
+    host: dc1
+    stack: systemd
+    depends_on: []
+    integrations:
+      vault: true
+      stepca: true
+      authentik: false       # IS the upstream identity source
+      backup: nightly
+    exposure:
+      ports: [53, 88, 135, 389, 445, 464, 636, 3268]
+      via_traefik: false
+    notes: |
+      Provisioned at first run; subsequent runs verify state.
+      Uses Samba's internal DNS (SAMBA_INTERNAL backend).
+
+  - name: authentik
+    description: Identity provider (OIDC, SAML, LDAP federation)
+    state: planned
+    phase: 2
+    host: auth1
+    stack: docker_compose
+    depends_on: [db1-postgres, dc1-samba]
+    integrations:
+      vault: true
+      stepca: true
+      authentik: false       # IS Authentik
+      backup: nightly
+    exposure:
+      dns_names: [authentik]
+      ports: [80, 443]
+      via_traefik: true
+    notes: |
+      Federates to dc1-samba via LDAP. First federated app: GitLab.
+      stepca's OIDC provisioner federates here for SSH cert issuance.
+
+  - name: db1-postgres
+    description: Shared Postgres for platform services
+    state: planned
+    phase: 2
+    host: db1
+    stack: docker_compose
+    depends_on: []
+    integrations:
+      vault: true
+      stepca: true
+      authentik: false
+      backup: nightly
+    exposure:
+      ports: [5432]
+      via_traefik: false     # direct TLS connections from services
+    notes: Backs Authentik (Phase 2). Direct access via db1.mikewashere.lan.
+
+  - name: db1-redis
+    description: Shared Redis cache for platform services
+    state: planned
+    phase: 2
+    host: db1
+    stack: docker_compose
+    depends_on: []
+    integrations:
+      vault: true
+      stepca: true
+      authentik: false
+      backup: weekly         # cache layer; less critical
+    exposure:
+      ports: [6379]
+      via_traefik: false
+    notes: Used by Authentik for session state.
+
+  # ==========================================================================
+  # Phase 3 - Ingress, ARM pipeline, tooling
+  # ==========================================================================
+
+  - name: traefik-seeder1
+    description: Public-facing reverse proxy (the main ingress)
+    state: planned
+    phase: 3
+    host: seeder1
+    stack: docker_compose
+    depends_on: [stepca]
+    integrations:
+      vault: true
+      stepca: true
+      authentik: true        # ForwardAuth middleware
+      backup: weekly
+    exposure:
+      dns_names: [traefik.seeder1]
+      ports: [80, 443]
+      via_traefik: false     # IS Traefik
+    notes: |
+      ACME via stepca for internal services; Let's Encrypt for external domain.
+      All external traffic ingresses here. Authentik ForwardAuth middleware
+      gates every request.
+
+  - name: adguard-seeder1
+    description: Primary internal DNS resolver
+    state: planned
+    phase: 3
+    host: seeder1
+    stack: docker_compose
+    depends_on: []
+    integrations:
+      vault: true
+      stepca: true
+      authentik: true        # admin UI gated by Authentik
+      backup: nightly        # filter lists + custom DNS entries
+    exposure:
+      dns_names: [adguard.seeder1]
+      ports: [53]
+      via_traefik: true      # admin UI through Traefik; DNS port direct
+    notes: |
+      Authoritative for mikewashere.lan; DNS authority moves here from routers
+      in Phase 3. Routers become DNS forwarders.
+
+  - name: adguard-seeder2
+    description: Secondary internal DNS resolver (Pi5 appliance)
+    state: planned
+    phase: 3
+    host: seeder2
+    stack: docker_compose
+    depends_on: []
+    integrations:
+      vault: true
+      stepca: true
+      authentik: false       # appliance role; no UI access needed
+      backup: nightly
+    exposure:
+      dns_names: [adguard.seeder2]
+      ports: [53]
+      via_traefik: false
+    notes: |
+      Pi5 appliance. Replicates zones from adguard-seeder1.
+      Migrated to immutable arm64 image as part of Phase 3 ARM pipeline work.
+
+  - name: tailscale-tunnel1
+    description: VPN concentrator for remote access
+    state: planned
+    phase: 3
+    host: tunnel1
+    stack: docker_compose
+    depends_on: []
+    integrations:
+      vault: true
+      stepca: true
+      authentik: false       # uses Tailscale's own coordinator auth
+      backup: weekly
+    exposure:
+      ports: [41641]         # WireGuard UDP
+      via_traefik: false
+    notes: |
+      Headscale or Tailscale; specific choice deferred.
+      Separated from Seeder1 for blast-radius isolation per ADR-024.
+
+  - name: nut-server
+    description: NUT UPS coordinator
+    state: present           # NUT1 hardware exists; service partially configured
+    phase: 3
+    host: nut1
+    stack: systemd
+    depends_on: []
+    integrations:
+      vault: true
+      stepca: true
+      authentik: false
+      backup: weekly
+    exposure:
+      ports: [3493]
+      via_traefik: false
+    notes: |
+      Migrates to immutable arm64 image in Phase 3.
+      Every host runs nut_client (in `common` Ansible role) listening for
+      coordinated shutdowns from here.
+
+  - name: renovate
+    description: Self-hosted dependency update bot
+    state: planned
+    phase: 3
+    host: devops1
+    stack: docker_compose
+    depends_on: [gitlab]
+    integrations:
+      vault: true
+      stepca: false          # talks to GitLab via internal network
+      authentik: false       # runs as scheduled pipeline; no UI
+      backup: none           # stateless config
+    exposure:
+      ports: []
+      via_traefik: false
+    notes: |
+      Scheduled GitLab pipeline runs renovate to open Tier-A auto-merge MRs
+      against Compose files per ADR-021.
+
+  - name: prometheus
+    description: Metrics collection
+    state: planned
+    phase: 3
+    host: secmon1
+    stack: docker_compose
+    depends_on: []
+    integrations:
+      vault: true
+      stepca: true
+      authentik: true
+      backup: nightly
+    exposure:
+      dns_names: [prometheus]
+      ports: [9090]
+      via_traefik: true
+
+  - name: grafana
+    description: Dashboards
+    state: planned
+    phase: 3
+    host: secmon1
+    stack: docker_compose
+    depends_on: [prometheus]
+    integrations:
+      vault: true
+      stepca: true
+      authentik: true
+      backup: nightly
+    exposure:
+      dns_names: [grafana]
+      ports: [3000]
+      via_traefik: true
+
+  - name: klipper
+    description: 3D printer controller (Klipper + Moonraker)
+    state: present           # printer exists and runs; service in-pipeline pending
+    phase: 3
+    host: printfil1
+    stack: docker_compose
+    depends_on: []
+    integrations:
+      vault: true
+      stepca: true
+      authentik: true
+      backup: nightly        # config files + macros
+    exposure:
+      dns_names: [klipper, printer-fil1]
+      ports: [80, 443, 7125]  # Moonraker API + web UI
+      via_traefik: true
+    notes: Phase 3 brings the existing hand-built service into the pipeline.
+
+  - name: feeder1-apps
+    description: Internal downloader and content services (specific stack TBD)
+    state: planned
+    phase: 3
+    host: feeder1
+    stack: docker_compose
+    depends_on: [authentik, file-server]
+    integrations:
+      vault: true
+      stepca: true
+      authentik: true
+      backup: nightly        # config; media itself is on file1
+    exposure:
+      ports: []              # TBD per app
+      via_traefik: true
+    notes: |
+      Placeholder. Specific apps (arr stack, etc.) decided during Phase 3
+      design discussions. Update this entry then.
+
+  # ==========================================================================
+  # Phase 6 - Platform maturation
+  # ==========================================================================
+
+  - name: kestra
+    description: Cross-system workflow orchestration
+    state: planned
+    phase: 6
+    host: devops1
+    stack: docker_compose
+    depends_on: [db1-postgres]
+    integrations:
+      vault: true
+      stepca: true
+      authentik: true
+      backup: nightly
+    exposure:
+      dns_names: [kestra]
+      ports: [8080]
+      via_traefik: true
+    notes: |
+      Backup verification, cert renewal monitoring, scheduled DR drills.
+      In Phase 1, simpler cron+script does backup verification; Kestra takes
+      over here when real cross-system workflows are warranted.
+
+  - name: loki
+    description: Log aggregation
+    state: planned
+    phase: 6
+    host: secmon1
+    stack: docker_compose
+    depends_on: []
+    integrations:
+      vault: true
+      stepca: true
+      authentik: true
+      backup: weekly         # log retention configured separately
+    exposure:
+      dns_names: [loki]
+      ports: [3100]
+      via_traefik: true
+    notes: Receives logs from every host's journal-shipper (in `common` role).
+
+  # ==========================================================================
+  # Future placeholders - entries added as designed
+  # ==========================================================================
+  # secmon1 will host additional services (Wazuh, Alertmanager, etc.) decided
+  # during Phase 3 design discussions. ML1's specific stack (Ollama, vLLM, etc.)
+  # decided during AI/ML productionization in Phase 7+.

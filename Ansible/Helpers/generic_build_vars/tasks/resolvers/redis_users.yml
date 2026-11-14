@@ -1,0 +1,48 @@
+---
+- name: Resolve 'redis_users'
+  vars:
+    resolver_name: "redis_users"
+    resolver_mode: "map"
+
+    # User input shape:
+    # redis_users:
+    #   app1:
+    #     username: ...
+    #     password: ...
+    resolver_input_map: "{{ generic_build_vars_inputs.redis_users | default({}) }}"
+
+    # Output per-item schema (also acts as a documentation “preview”)
+    resolver_item_schema:
+      username: ""
+      password: ""
+
+    # Vault configuration
+    resolver_vault_mount: "{{ generic_build_vars_vault_mount }}"   # e.g. "secret"
+
+    # Enable listing keys first so we can return all apps even when user only overrides one
+    resolver_vault_list_first: true
+
+    # IMPORTANT:
+    # vault_list takes a *metadata* path for KV v2 listing.
+    resolver_vault_list_path: >-
+      {{ resolver_vault_mount }}/metadata/internal_services/redis/users
+
+    # Per-key secret fetch prefix for KV2 get (relative to mount)
+    resolver_vault_item_prefix: "internal_services/redis/users/"
+
+    # Key strategy:
+    # - union => keys = user_keys ∪ vault_keys
+    #   (This gives you "return all apps", with user overrides taking precedence)
+    resolver_map_key_strategy: "union"
+
+    # Optional behavior knobs (defaults shown)
+    resolver_trim_user_values: false
+    resolver_allow_unknown_item_fields: false
+
+    # Asserts (optional)
+    resolver_enable_asserts: true
+    resolver_asserts_item:
+      username: string
+      password: string
+
+  ansible.builtin.include_tasks: base.yml

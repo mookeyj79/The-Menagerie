@@ -1,0 +1,26 @@
+---
+- name: Resolve 'tailscale'
+  vars:
+    resolver_name: "tailscale"
+    resolver_mode: "object"
+
+    resolver_input_object: "{{ generic_build_vars_inputs.tailscale | default({}) }}"
+
+    resolver_schema:
+      hostname: ""
+      authkey: ""
+      routes: ""
+    
+    resolver_defaults:
+      hostname: "{{ inventory_hostname | lower }}"
+
+    resolver_vault_key: "internal_services/tailscale"
+    resolver_vault_mount: "{{ generic_build_vars_vault_mount }}"
+
+    resolver_enable_asserts: true
+    resolver_asserts_object:
+      hostname: string
+      authkey: string
+      routes: string
+
+  ansible.builtin.include_tasks: base.yml

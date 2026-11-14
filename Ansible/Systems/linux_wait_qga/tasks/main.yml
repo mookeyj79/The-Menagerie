@@ -1,0 +1,14 @@
+---
+- name: Wait for qemu-guest-agent service to be active
+  ansible.builtin.systemd:
+    name: qemu-guest-agent
+  register: qga_service_status
+  until: qga_service_status.status.ActiveState == "active"
+  retries: "{{ linux_wait_qga_timeout // linux_wait_qga_delay }}"
+  delay: "{{ linux_wait_qga_delay }}"
+  failed_when: false
+
+- name: Fail if qemu-guest-agent service did not start
+  ansible.builtin.fail:
+    msg: "qemu-guest-agent service did not become active"
+  when: qga_service_status.status.ActiveState != "active"

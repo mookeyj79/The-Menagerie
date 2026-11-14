@@ -1,0 +1,3 @@
+---
+linux_reboot_system_force: false
+linux_reboot_system_timeout: 600

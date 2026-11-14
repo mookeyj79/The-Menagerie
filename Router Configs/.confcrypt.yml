@@ -129,12 +129,3 @@ filetypes:
         dummy: 'REDACTED {masked}'
         legacy_dummies:
           - '! REDACTED 0000.0000.0000'
-
-  wifi:
-    comment: "#"
-    files:
-      - "WiFi's.txt"
-    rules:
-      # Everything in the Wi-Fi notes file: SSIDs, PSKs, the license key.
-      - regex: '^.+$'
-        dummy: 'REDACTED'

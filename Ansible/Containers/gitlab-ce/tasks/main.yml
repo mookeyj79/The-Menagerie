@@ -1,0 +1,58 @@
+---
+- name: PostgreSQL Preparation
+  become: true
+  block:
+    - name: Build variables
+      ansible.builtin.include_tasks: build_vars.yml
+
+    - name: Check if Docker is installed
+      ansible.builtin.include_role:
+        name: generic_check_docker
+
+    - name: Create GitLab-CE directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ var_primary_user.username }}"
+        group: "docker"
+        mode: "0770"
+      loop:
+        - "{{ apps_dir }}"
+        - "{{ apps_dir }}/gitlab-ce"
+        - "{{ apps_dir }}/gitlab-ce/config"
+        - "{{ apps_dir }}/gitlab-ce/data"
+        - "{{ apps_dir }}/gitlab-ce/logs"
+        - "{{ secrets_dir }}"
+        - "{{ secrets_dir }}/gitlab-ce"
+
+    - name: Check if GitLab-CE config already exists
+      ansible.builtin.stat:
+        path: "{{ apps_dir }}/gitlab-ce/config/gitlab.rb"
+      register: gl_conf
+
+    - name: Copy GitLab-CE config file
+      ansible.builtin.copy:
+        src: "{{ role_path }}/files/gitlab.rb"
+        dest: "{{ apps_dir }}/gitlab-ce/config/gitlab.rb"
+        owner: "{{ var_primary_user.username }}"
+        group: docker
+        mode: "0750"
+      when: not gl_conf.stat.exists
+
+    - name: Create secrets files
+      no_log: true
+      ansible.builtin.copy:
+        dest: "{{ item.dest }}"
+        content: "{{ item.content }}"
+        owner: "{{ var_primary_user.username }}"
+        group: "docker"
+        mode: "0660"
+      loop:
+        - dest: "{{ secrets_dir }}/gitlab-ce/postgresql_password"
+          content: "{{ var_gitlab_secrets.postgresql.password }}"
+        - dest: "{{ secrets_dir }}/gitlab-ce/postgresql_username"
+          content: "{{ var_gitlab_secrets.postgresql.username }}"
+        - dest: "{{ secrets_dir }}/gitlab-ce/redis_password"
+          content: "{{ var_gitlab_secrets.redis.password }}"
+        - dest: "{{ secrets_dir }}/gitlab-ce/redis_username"
+          content: "{{ var_gitlab_secrets.redis.username }}"

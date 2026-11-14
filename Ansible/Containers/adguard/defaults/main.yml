@@ -1,0 +1,6 @@
+---
+apps_dir: /opt/apps
+fallback_nameservers:
+  - "1.1.1.1"
+  - "9.9.9.9"
+use_adguard_localhost: true

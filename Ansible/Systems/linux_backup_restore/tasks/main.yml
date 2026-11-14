@@ -1,0 +1,72 @@
+---
+- name: Linux - Backup Restore Setup
+  become: true
+  block:
+    - name: Ensure this is a Linux system
+      ansible.builtin.assert:
+        that: ansible_facts['system'] == 'Linux'
+        fail_msg: "This role should only run on Linux systems."
+        success_msg: "Confirmed: Linux system."
+
+    - name: Build variables
+      ansible.builtin.include_role:
+        name: generic_build_vars
+      vars:
+        generic_build_vars_request: [primary_user, restore]
+        generic_build_vars_inputs:
+          primary_user: "{{ primary_user | default({}) }}"
+          restore: "{{ restore | default({}) }}"
+
+    - name: Install required packages - Debian
+      ansible.builtin.include_tasks: debian.yml
+      when: ansible_facts["os_family"] == "Debian"
+
+    - name: Install required packages - RedHat
+      ansible.builtin.include_tasks: redhat.yml
+      when: ansible_facts["os_family"] == "RedHat"
+
+    - name: Install required packages - Alpine
+      ansible.builtin.include_tasks: alpine.yml
+      when: ansible_facts["os_family"] == "Alpine"
+
+    - name: Ensure .ssh directory exists
+      ansible.builtin.file:
+        path: "{{ generic_build_vars_return.primary_user.home }}/.ssh"
+        state: directory
+        owner: "{{ generic_build_vars_return.primary_user.username }}"
+        group: "{{ generic_build_vars_return.primary_user.group }}"
+        mode: "0700"
+
+    - name: Write SSH Keys
+      ansible.builtin.copy:
+        content: "{{ generic_build_vars_return.restore.ssh_private_key }}"
+        dest: "{{ generic_build_vars_return.primary_user.home }}/.ssh/backup_key"
+        owner: "{{ generic_build_vars_return.primary_user.username }}"
+        group: "{{ generic_build_vars_return.primary_user.group }}"
+        mode: "0600"
+      no_log: true
+
+    - name: Create backup/script directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ generic_build_vars_return.primary_user.username }}"
+        group: "{{ generic_build_vars_return.primary_user.group }}"
+        mode: "0770"
+      loop:
+        - /opt/scripts
+        - /opt/scripts/backup
+        - /mnt/backup
+
+    - name: Copy restore script
+      ansible.builtin.template:
+        src: "{{ role_path }}/templates/restore.sh.j2"
+        dest: /opt/scripts/backup/restore.sh
+        owner: "{{ generic_build_vars_return.primary_user.username }}"
+        group: "{{ generic_build_vars_return.primary_user.group }}"
+        mode: "0750"
+
+    - name: Restore backups
+      ansible.builtin.command: /opt/scripts/backup/restore.sh
+      register: restore_status
+      changed_when: restore_status.rc != 0

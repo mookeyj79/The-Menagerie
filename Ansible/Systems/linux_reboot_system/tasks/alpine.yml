@@ -1,0 +1,10 @@
+---
+- name: Check if reboot is required - Alpine
+  ansible.builtin.command: "ls -1 /lib/modules"
+  register: modules_dir_list
+  failed_when: false
+  changed_when: false
+
+- name: Compare running kernel to available modules
+  ansible.builtin.set_fact:
+    reboot_required: "{{ (modules_dir_list.stdout_lines | select('ne', ansible_kernel) | list | length) > 0 }}"

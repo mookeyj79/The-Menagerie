@@ -1,0 +1,291 @@
+# ============================================================================
+# fw_groups.yml - Firewall/ACL address-list group definitions (MEMBERSHIP ONLY)
+# ============================================================================
+# Answers exactly one question: "what belongs to this name?" No awareness of
+# how a group is used downstream. Three other files consume these names:
+#
+#   fw_rules.yml         - network policy (RouterOS filter chains, Cisco ACLs)
+#   bastion_access.yml   - identity policy (who may reach what via bastion1)
+#   proxy_allowlist.yml  - application policy (domains reachable via bastion1's proxy)
+#
+# `category` (zone | role) is documentation only, not an enforced type.
+#
+# ============================================================================
+# Schema
+# ============================================================================
+#
+#   name         : literal string rendered into address-lists/ACLs/aliases.
+#                  No case-transform applied by any renderer.
+#
+#   category     : zone | role
+#                    - zone: membership == one or more vlans.yml VLANs,
+#                            optionally plus literal extras
+#                    - role: everything else
+#
+#   derive_from  : auto-population. May combine with `members` (union).
+#     vlan: <name> | [<name>, ...]
+#                  - all subnets under the named vlans.yml VLAN(s)
+#     role: <value>
+#                  - all systems.yml entries whose `role:` field matches
+#
+#   members      : list of short-form strings or long-form mappings.
+#
+#   description  : one-line human-readable purpose
+#   notes        : optional; structural context only
+#
+# ============================================================================
+# Member reference forms
+# ============================================================================
+#
+# Short form (plain string), disambiguated in order:
+#   1. Contains a slash          -> CIDR                  192.168.17.0/24
+#   2. Valid IPv4 literal        -> single-host CIDR /32  192.168.17.2
+#   3. Otherwise                 -> systems.yml hostname, primary interface
+#
+# Long form (mapping):
+#   - host: <hostname>
+#     interface: <iface-name>    # required if host has >1 interface
+#     comment: <optional>
+#   - cidr: <ip-or-cidr>
+#     comment: <required>
+#
+# ============================================================================
+
+groups:
+
+  # ==========================================================================
+  # Zone groups - VLAN-derived
+  # ==========================================================================
+
+  - name: Architecture
+    category: zone
+    description: All router-to-router OSPF point-to-point links
+    derive_from:
+      vlan: [architecture-1, architecture-2, architecture-3]
+
+  - name: DMZ_Servers
+    category: zone
+    description: Public-facing service hosts
+    derive_from:
+      vlan: dmz-servers
+
+  - name: Internal_Servers
+    category: zone
+    description: Core internal infrastructure services
+    derive_from:
+      vlan: internal-servers
+
+  - name: Internal_Users
+    category: zone
+    description: Trusted user workstations and personal devices
+    derive_from:
+      vlan: internal-users
+
+  - name: Internal_Guest_Network
+    category: zone
+    description: Guest wireless; isolated from internal services
+    derive_from:
+      vlan: internal-guests
+
+  - name: Internal_Smart_Home
+    category: zone
+    description: IoT devices, smart home hubs
+    derive_from:
+      vlan: internal-smarthome
+
+  - name: Internal_Devices
+    category: zone
+    description: Printers and shared peripherals
+    derive_from:
+      vlan: internal-devices
+
+  - name: Internal_RetroNet
+    category: zone
+    description: Retro computers and legacy gaming consoles, dialup-accessible
+    derive_from:
+      vlan: internal-retronet
+
+  - name: Internal_Surveillance
+    category: zone
+    description: Surveillance cameras and NVR
+    derive_from:
+      vlan: internal-surveillance
+
+  - name: Internal_DevOps
+    category: zone
+    description: Internal CI/CD runners and platform tooling
+    derive_from:
+      vlan: internal-devops
+
+  - name: Hardware_Management
+    category: zone
+    description: Out-of-band management for routers, switches, firewalls, APs
+    derive_from:
+      vlan: hardware-management
+
+  - name: Server_Management
+    category: zone
+    description: Out-of-band management for servers and hypervisors
+    derive_from:
+      vlan: server-management
+
+  - name: Power_Management
+    category: zone
+    description: PDU and UPS coordination network
+    derive_from:
+      vlan: power-management
+
+  - name: Emergency_Console_Access
+    category: role
+    description: Off-bridge break-glass console port; one per router, never routed
+    members:
+      - cidr: 10.9.11.0/29
+        comment: Reused identically on every router's off-bridge port; never routed or advertised
+    notes: |
+      Router3 has no equivalent - it uses its physical RS-232 console
+      (line con 0) instead of an IP-based off-bridge segment.
+
+  # ==========================================================================
+  # Role groups - infra hosts
+  # ==========================================================================
+
+  - name: CAs
+    category: role
+    description: Internal certificate authority
+    members:
+      - host: ca1
+
+  - name: FileServers
+    category: role
+    description: SMB/Syncthing/shared-storage host
+    members:
+      - host: file1
+
+  - name: Vaults
+    category: role
+    description: Secrets management host
+    members:
+      - host: vault1
+
+  - name: DevOps
+    category: role
+    description: GitLab CE / CI-CD platform host
+    members:
+      - host: devops1
+
+  - name: Ingress
+    category: role
+    description: Reverse-proxy/ingress hosts
+    members:
+      - host: ingress1
+        comment: DMZ-facing
+      - host: ingress2
+        comment: Internal-facing, Authentik identity plane
+
+  - name: Printers
+    category: role
+    description: Physical 2D print devices
+    members:
+      - host: printer1
+      - host: printer2
+
+  - name: CNCs
+    category: role
+    description: 3D printers, resin printers, laser cutter, CNC mill, vinyl cutter
+    members:
+      - host: printfil1
+      - host: printfil2
+      - host: printres1
+      - host: printres2
+      - host: laser1
+      - host: cnc1
+      - host: cutter1
+
+  - name: Bastions
+    category: role
+    description: Identity-aware SSH proxy hosts; sole path for admin access and management-plane internet egress
+    members:
+      - host: bastion1
+        interface: eth0.16
+        comment: Internal-servers plane
+      - host: bastion1
+        interface: eth0.101
+        comment: Hardware-management plane
+      - host: bastion1
+        interface: eth0.102
+        comment: Server-management plane
+    notes: |
+      Single-host group. Add a second bastion here if/when a failover host
+      exists.
+
+  - name: Hypervisors
+    category: role
+    description: Proxmox hosts
+    derive_from:
+      role: hypervisor
+
+  - name: Routers
+    category: role
+    description: Network device control plane
+    derive_from:
+      role: router
+
+  # ==========================================================================
+  # Role groups - unmanaged devices (literal IPs; no systems.yml presence)
+  # ==========================================================================
+
+  - name: LEDs
+    category: role
+    description: Smart LED strips
+    members:
+      - cidr: 192.168.19.15
+        comment: led-strip1
+      - cidr: 192.168.19.16
+        comment: led-strip2
+      - cidr: 192.168.19.17
+        comment: led-strip3
+      - cidr: 192.168.19.18
+        comment: led-strip4
+
+  - name: Sunshine_Sources
+    category: role
+    description: Hosts permitted to stream via Sunshine
+    members:
+      - cidr: 192.168.17.3
+        comment: Desky (Ethernet)
+      - cidr: 192.168.17.4
+        comment: KellysKomputer (Ethernet)
+      - cidr: 192.168.17.5
+        comment: KellysKomputer (WiFi)
+      - cidr: 192.168.17.7
+        comment: Razzy (Core Ethernet)
+      - cidr: 192.168.17.8
+        comment: Razzy (Ethernet)
+      - cidr: 192.168.17.9
+        comment: Razzy (WiFi)
+
+  - name: Sunshine_Targets
+    category: role
+    description: TV-class devices that receive Sunshine streams
+    members:
+      - cidr: 192.168.19.30
+        comment: Smart-TV2 (Office)
+      - cidr: 192.168.19.31
+      - cidr: 192.168.19.66
+
+  # ==========================================================================
+  # Cross-cutting groups
+  # ==========================================================================
+
+  - name: RFC1918_Private
+    category: role
+    description: All private address space; deny-by-default target for untrusted-segment ACLs
+    members:
+      - cidr: 10.0.0.0/8
+      - cidr: 192.168.0.0/16
+
+  - name: PortScanners
+    category: role
+    description: Automatically blocklisted hosts (psd port-scan detection)
+    members: []
+    notes: Populated at runtime by the router; not from inventory.

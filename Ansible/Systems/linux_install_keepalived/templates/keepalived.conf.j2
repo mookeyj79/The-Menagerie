@@ -1,0 +1,22 @@
+vrrp_instance {{ generic_build_vars_return.keepalived.instance }} {
+  state {{ generic_build_vars_return.keepalived.state | upper }}
+  interface {{ generic_build_vars_return.keepalived.interface }}
+  virtual_router_id {{ generic_build_vars_return.keepalived.router_id }}
+  priority {{ generic_build_vars_return.keepalived.priority }}
+  advert_int 1
+  unicast_src_ip {{ generic_build_vars_return.keepalived.source_ip }}
+  unicast_peer {
+{% for peer in generic_build_vars_return.keepalived.peers %}
+    {{ peer }}
+{% endfor %}
+  }
+
+  authentication {
+    auth_type PASS
+    auth_pass {{ generic_build_vars_return.keepalived.password }}
+  }
+
+  virtual_ipaddress {
+    {{ generic_build_vars_return.keepalived.vip }}
+  }
+}

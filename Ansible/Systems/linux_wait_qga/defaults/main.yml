@@ -1,0 +1,3 @@
+---
+linux_wait_qga_timeout: 300
+linux_wait_qga_delay: 5

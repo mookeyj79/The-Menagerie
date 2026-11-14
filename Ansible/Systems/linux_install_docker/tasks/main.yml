@@ -1,0 +1,72 @@
+---
+- name: Linux - Install Docker
+  become: true
+  block:
+    - name: Ensure this is a Linux system
+      ansible.builtin.assert:
+        that: ansible_facts['system'] == 'Linux'
+        fail_msg: "This role should only run on Linux systems."
+        success_msg: "Confirmed: Linux system."
+
+    - name: Build variables
+      ansible.builtin.include_role:
+        name: generic_build_vars
+      vars:
+        generic_build_vars_request: [docker_hub, primary_user]
+        generic_build_vars_inputs:
+          docker_hub: "{{ docker_hub | default({}) }}"
+          primary_user: "{{ primary_user | default({}) }}"
+
+    - name: Install Docker - Debian
+      ansible.builtin.include_tasks: debian.yml
+      when: ansible_facts["os_family"] == "Debian"
+
+    - name: Install Docker - RedHat
+      ansible.builtin.include_tasks: redhat.yml
+      when: ansible_facts["os_family"] == "RedHat"
+
+    - name: Install Docker - Alpine
+      ansible.builtin.include_tasks: alpine.yml
+      when: ansible_facts["os_family"] == "Alpine"
+
+    - name: Start and enable Docker service
+      ansible.builtin.systemd:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Ensure 'docker' group exists
+      ansible.builtin.include_role:
+        name: linux_manage_accounts
+      vars:
+        linux_manage_accounts_groups:
+          - name: docker
+
+    - name: Add users to 'docker' group
+      ansible.builtin.include_role:
+        name: linux_manage_accounts
+      vars:
+        linux_manage_accounts_users:
+          - name: "{{ account }}"
+            groups: [docker]
+            append: true
+      loop_control:
+        loop_var: account
+        label: "{{ account }}"
+      loop: >-
+        {{
+          ([
+            (generic_build_vars_return.primary_user.username | default(None))
+          ]
+          + ((docker_users | default([])) | flatten))
+          | select('truthy')
+          | unique
+          | list
+        }}
+
+    - name: Log in to Docker Hub registry
+      community.docker.docker_login:
+        username: "{{ generic_build_vars_return.docker_hub.username }}"
+        password: "{{ generic_build_vars_return.docker_hub.password }}"
+        registry_url: https://index.docker.io/v1/
+      no_log: true

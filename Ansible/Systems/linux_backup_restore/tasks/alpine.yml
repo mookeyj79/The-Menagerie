@@ -1,0 +1,8 @@
+---
+- name: Install required packages - Alpine
+  become: true
+  community.general.apk:
+    name:
+      - rsync
+    state: present
+    update_cache: true

@@ -1,0 +1,186 @@
+---
+# ------------------------------------------------------------
+# 1) Resolve schema + defaults + user (NO vault in engine)
+# ------------------------------------------------------------
+- name: Resolve 'notifications' (schema + defaults + user)
+  vars:
+    resolver_name: "notifications"
+    resolver_mode: "object"
+
+    resolver_input_object: "{{ generic_build_vars_inputs.notifications | default({}) }}"
+
+    resolver_schema:
+      discord:
+        webhook_url: ""
+      pushover:
+        token: ""
+        user: ""
+
+    resolver_defaults: {}
+
+    # Disable vault in generic engine for nested schemas
+    resolver_vault_key: ""
+    resolver_enable_asserts: false
+  ansible.builtin.include_tasks: base.yml
+
+
+# ------------------------------------------------------------
+# 2) Read vault parents, then fill missing nested leaves
+# ------------------------------------------------------------
+- name: Fill notifications from Vault (only where user left blanks)
+  no_log: true
+  vars:
+    _host: "{{ inventory_hostname | lower }}"
+    _mount: "{{ generic_build_vars_vault_mount }}"
+    _base: "systems/{{ _host }}/notifications"
+
+    _parents:
+      discord: "{{ _base }}/discord"
+      pushover: "{{ _base }}/pushover"
+
+    _leaf_map:
+      - { parent: "discord",  leaf: "webhook_url" }
+      - { parent: "pushover", leaf: "token" }
+      - { parent: "pushover", leaf: "user" }
+
+    _notif0: "{{ generic_build_vars_return.notifications }}"
+
+  block:
+    - name: Read Vault notification parent secrets
+      ansible.builtin.set_fact:
+        _vault_parents_raw: >-
+          {{
+            (_vault_parents_raw | default({}))
+            | combine(
+                {
+                  item.key: (
+                    lookup(
+                      'community.hashi_vault.vault_kv2_get',
+                      item.value,
+                      engine_mount_point=_mount,
+                      errors='ignore'
+                    ) | default({})
+                  )
+                },
+                recursive=True
+              )
+          }}
+      loop: "{{ _parents | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Merge Vault leaves into notifications
+      ansible.builtin.set_fact:
+        _notif: >-
+          {{
+            (_notif | default(_notif0))
+            | combine(
+                { item.parent: (
+                    ((_notif | default(_notif0))[item.parent] | default({}))
+                    | combine(
+                        { item.leaf: _vv },
+                        recursive=True
+                      )
+                  )
+                },
+                recursive=True
+              )
+          }}
+      vars:
+        _cur: "{{ (_notif | default(_notif0))[item.parent][item.leaf] | default('') }}"
+        _cur_blank: "{{ (_cur | string | trim | length) == 0 }}"
+
+        _secret: >-
+          {{
+            (
+              (_vault_parents_raw[item.parent].secret)
+              if (_vault_parents_raw[item.parent] is mapping
+                  and _vault_parents_raw[item.parent].secret is defined
+                  and _vault_parents_raw[item.parent].secret is mapping)
+              else (
+                (_vault_parents_raw[item.parent].data.data)
+                if (_vault_parents_raw[item.parent] is mapping
+                    and _vault_parents_raw[item.parent].data is defined
+                    and _vault_parents_raw[item.parent].data is mapping
+                    and _vault_parents_raw[item.parent].data.data is defined
+                    and _vault_parents_raw[item.parent].data.data is mapping)
+                else {}
+              )
+            )
+          }}
+
+        _vv: "{{ (_secret.get(item.leaf, '') | string | trim) }}"
+        _vv_ok: "{{ _vv | length > 0 }}"
+      loop: "{{ _leaf_map }}"
+      loop_control:
+        label: "{{ item.parent }}.{{ item.leaf }}"
+      when:
+        - _cur_blank
+        - _vv_ok
+
+    - name: Store resolved notifications
+      ansible.builtin.set_fact:
+        generic_build_vars_return: >-
+          {{
+            (generic_build_vars_return | default({}))
+            | combine({ 'notifications': (_notif | default(_notif0)) }, recursive=True)
+          }}
+
+
+# ------------------------------------------------------------
+# 3) Custom nested assertions (professional + compact)
+# ------------------------------------------------------------
+- name: Assert notifications shape/types (optional)
+  ansible.builtin.assert:
+    that:
+      # required check (if required=true, must exist and not be blank)
+      - >
+        (not item.required | bool)
+        or (
+          (_val is not none)
+          and (
+            (_val is string and (_val | trim | length) > 0)
+            or (_val is not string)
+          )
+        )
+
+      # type check (supports: string, mapping, list, iterable, number, boolean, integer, float)
+      - >
+        (item.type == 'iterable' and (_val is sequence) and (_val is not string))
+        or
+        (item.type == 'number' and (_val | type_debug) in ['int','float'])
+        or
+        (
+          item.type not in ['iterable','number']
+          and (_val | type_debug)
+              == ({
+                    'string':'str',
+                    'mapping':'dict',
+                    'list':'list',
+                    'boolean':'bool',
+                    'integer':'int',
+                    'float':'float'
+                  }.get(item.type, item.type))
+        )
+    fail_msg: >-
+      notifications.{{ item.path }} expected {{ item.type }}
+      but got {{ 'undefined' if _val is none else (_val | type_debug) }}
+  loop:
+    - { path: "discord.webhook_url", type: "string", required: false }
+    - { path: "pushover.token",      type: "string", required: false }
+    - { path: "pushover.user",       type: "string", required: false }
+  loop_control:
+    label: "{{ item.path }}"
+  vars:
+    _enable: "{{ (resolver_enable_asserts | default(true)) | bool }}"
+    _n: "{{ generic_build_vars_return.notifications | default({}) }}"
+    _val: >-
+      {{
+        (
+          (_n.get(item.path.split('.')[0], {}) | default({}))
+          .get(item.path.split('.')[1])
+        )
+        if (item.path.split('.') | length) == 2
+        else none
+      }}
+  when: _enable

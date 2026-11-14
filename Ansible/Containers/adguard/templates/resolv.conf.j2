@@ -1,0 +1,9 @@
+# Managed by Ansible: disable_systemd_resolved
+# {{ ansible_managed }}
+
+{% if use_adguard_localhost %}
+nameserver 127.0.0.1
+{% endif %}
+{% for ns in fallback_nameservers %}
+nameserver {{ ns }}
+{% endfor %}

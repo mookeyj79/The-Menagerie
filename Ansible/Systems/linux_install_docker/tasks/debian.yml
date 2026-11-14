@@ -1,0 +1,47 @@
+---
+- name: Install Docker - Debian
+  become: true
+  block:
+    - name: Determine system information
+      ansible.builtin.set_fact:
+        _system_info:
+          distro: >-
+            {% set dist = ansible_facts.distribution | lower %}
+            {% set lsb = ansible_facts.lsb.id | default('', true) | lower %}
+            {% if 'ubuntu' in dist or lsb == 'ubuntu' %}
+              ubuntu
+            {% elif 'raspbian' in dist or lsb == 'raspbian' %}
+              raspbian
+            {% else %}
+              debian
+            {% endif %}
+
+    - name: Install required packages
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+        state: present
+        update_cache: true
+
+    - name: Add Docker APT repository
+      ansible.builtin.deb822_repository:
+        name: docker-ce
+        types: [deb]
+        uris: "https://download.docker.com/linux/{{ _system_info.distro | trim }}"
+        suites: ["{{ ansible_facts.lsb.codename | default(ansible_facts.distribution_release) }}"]
+        components: [stable]
+        signed_by: "https://download.docker.com/linux/{{ _system_info.distro | trim }}/gpg"
+        enabled: true
+        state: present
+
+    - name: Install Docker
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
