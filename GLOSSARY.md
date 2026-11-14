@@ -6,7 +6,7 @@
 
 **Rule**: A dialect entry pairing a line regex with a dummy line. Every line matching the regex is protected.
 
-**Dummy line**: The fixed, harmless line that stands in for a protected line in the committed file. It reveals nothing about the original.
+**Dummy line**: The harmless line that stands in for a protected line in the committed file. Usually fixed, revealing nothing about the original; a masked rule's dummy keeps the original's structure with only fixed-shape values (MACs) zeroed (ADR 0004).
 
 **Metadata line**: The comment line directly above a dummy line, carrying the age-encrypted original line.
 
