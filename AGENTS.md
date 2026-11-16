@@ -31,6 +31,7 @@ The homelab is built in layers, each in its own top-level directory:
   ```
   `check` is key-less. The identity is a path (`--identity`, `$SOPS_AGE_KEY_FILE`, config, or `~/.sops/keys.txt`); keys are never passed as arguments. Change protected lines with `edit`, leaving metadata/dummy pairs untouched by hand.
 - The **gate** (`Scripts/gate/gate.sh`, ADR 0003) runs from the `pre-commit` and `pre-merge-commit` hooks (`--staged`) and in CI (`--all`). It must pass; reviewed false positives go in `.gitleaks.toml` or an inline `gitleaks:allow`.
+- Before committing from a Linux sandbox, run `bash Scripts/setup-sandbox.sh` (installs the gate's pinned gitleaks, sops and Python 3.12 venv, enables the hooks) and export the `GATE_*` lines it prints.
 - Don't copy placeholder or bootstrap values (such as cloud-init passwords) from history or examples into new files.
 - Whoever adds a SOPS-governed file also commits a plaintext `*.example.yml` sibling with placeholder values (RFC 5737 addresses, `example.lan`).
 
