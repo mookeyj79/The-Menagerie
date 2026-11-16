@@ -529,10 +529,13 @@ services:
     - relay
   notes: |
     Issue #148. Control traffic on 443 under its own name, through Traefik.
-    The ACL lets relay1 reach only k3s-dmz1's dedicated entrypoint (8444) and
-    the deployed games' UDP ports; management paths are open (issue #156). Separate from the household Tailscale
+    The ACL lets relay1 reach only k3s-dmz1's dedicated entrypoint (8444), the
+    deployed games' UDP ports and k3s-dmz1's relay forwards (TCP 5055, 8080,
+    8220), and lets k3s-dmz1 reach only relay1's TCP 22, 9100 and the Traefik
+    metrics port (issue #156). Separate from the household Tailscale
     tailnet (issue #146), so a compromised relay can't reach admin access
-    or backups. Its state is rebuilt by re-enrolling k3s-dmz1, so no backup.
+    or backups. Its state is rebuilt by re-enrolling k3s-dmz1 with a pre-auth
+    key Ansible creates and stores in OpenBao, so no backup (issue #156).
 - name: blog
   description: mikewashere.com
   state: planned
@@ -707,7 +710,7 @@ services:
     stepca: false
     sso: false
     backup: none
-  notes: Issue #111; replaces Tautulli's statistics. Scraped over metrics-to-jellyfin-exporter (TCP 9594).
+  notes: Issue #111; replaces Tautulli's statistics. Scraped over metrics-to-dmz-nodes (TCP 9594).
 - name: game-servers
   description: Valheim, V Rising, Foundry, AutoMuteUs and Galactus
   state: planned

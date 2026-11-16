@@ -663,8 +663,15 @@ systems:
       and Galactus. Managed by Argo CD in the App-Servers cluster; secrets arrive from a pipeline job.
       Its Tailscale client (Ansible, on the host, not in the cluster) joins relay1's Headscale tailnet
       over dmz-to-relay (issue #148); relay1's Traefik reaches the dedicated entrypoint (8444) and the
-      game ports at the tailscale0 address. The host firewall on tailscale0 accepts only those ports
-      from relay1. This tailnet is separate from the household Tailscale tailnet (issue #146).
+      game ports at the tailscale0 address. This tailnet is separate from the household Tailscale
+      tailnet (issue #146).
+      relay1's only door home, both ways (issue #156). Into relay1: runners and bastion1 SSH
+      through the shell-less relay-jump account (step-ca certificates, PermitOpen relay1:22 only),
+      and the host forwards 9101 to relay1's node exporter and 9102 to its Traefik metrics, scraped
+      over metrics-to-dmz-nodes. Out of relay1: the host forwards TCP 5055 and 8220 to secmon1 and
+      8080 to crowdsec1, with its own address as source, so logs-to-security-tcp covers them. The
+      host firewall on tailscale0 accepts only the entrypoint, game ports and those three forwards,
+      from relay1. Host forwards beside K3s and Istio need a Phase 0 proof.
     os: Debian 13
     resources:
       arch: x86_64
@@ -687,10 +694,20 @@ systems:
       watch is limited to Friend_Countries by a TCP IPAllowList rendered monthly; downloads and the
       game servers are open to all; game UDP rides Traefik UDP routers. CrowdSec with the firewall
       bouncer covers every port. Headscale runs the relay's own tailnet, its control traffic sharing
-      443 under its own name; its ACL lets relay1 reach only k3s-dmz1's entrypoint and game ports.
-      Host firewall: TCP 443, UDP 41641 (Tailscale) and the deployed games' UDP ports, nothing else
-      public. Linode's web console is the way in if the link fails. How runners, bastion1,
-      Prometheus, Security Onion and the CrowdSec LAPI reach it is open (issue #156).
+      443 under its own name.
+      Host firewall and Linode Cloud Firewall (OpenTofu, same generated list): TCP 443, UDP 41641
+      (Tailscale) and the deployed games' UDP ports, nothing else public; SSH (22), node exporter
+      (9100) and Traefik metrics listen on the tailnet only, for k3s-dmz1.
+      Management (issue #156): k3s-dmz1 is its only door home, both ways. Ansible and admin SSH
+      jump through k3s-dmz1's relay-jump account; Prometheus scrapes it through k3s-dmz1's 9101 and
+      9102; Elastic Agent and CrowdSec reach secmon1 and crowdsec1 through k3s-dmz1's forwards.
+      CrowdSec runs standalone (local LAPI, community blocklist) until Phase 10, then joins
+      crowdsec1 so home bans are enforced here. Logs stay local until Phase 10. Relay1 down for
+      5 minutes alerts on Pushover. The Linode token (Linodes and Firewalls read/write) is in
+      OpenBao, used only by runner1 deploy jobs. The Linode account is break-glass: owner only,
+      two-factor, recovery codes with the offline break-glass material; Lish is the way in if
+      k3s-dmz1 or the link fails. Disposable: not in the Restore set, rebuilt from code, and
+      the yearly DR drill rebuilds it once.
       Deployed in Phase 8 with the first service that needs it. When Linode is down, watch,
       downloads and the games are down; the blog and admin access are not.
     os: Debian 13
