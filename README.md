@@ -2,6 +2,8 @@
 
 Infrastructure as code for a segmented Proxmox homelab: the network design as YAML, Terraform that builds the VMs from it, Ansible roles that configure them, and the router configs.
 
+It is the companion to the homelab guide at [mikewashere.com](https://mikewashere.com), which walks through building it step by step.
+
 [![gate](https://github.com/mookeyj79/The-Menagerie/actions/workflows/gate.yml/badge.svg)](https://github.com/mookeyj79/The-Menagerie/actions/workflows/gate.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -130,7 +132,13 @@ Run the gate over the whole tree and history, as CI does:
 sh Scripts/gate/gate.sh --all
 ```
 
-The confcrypt and gate tests use pytest, with the same Python the gate uses:
+After changing anything in `Homelab Structure/`, run the structure check. It fails on any broken reference, such as an unknown VLAN, hostname, role, firewall group, DNS record or service:
+
+```sh
+python Scripts/structure_check/structure_check.py
+```
+
+The confcrypt, gate and structure check tests use pytest, with the same Python the gate uses:
 
 ```sh
 python -m pytest Scripts
@@ -144,7 +152,7 @@ terraform init -backend=false
 terraform test
 ```
 
-The [gate workflow](.github/workflows/gate.yml) runs `gate.sh --all` on every push and pull request, and weekly. The [tests workflow](.github/workflows/tests.yml) runs pytest and `terraform test` on every push and pull request. Both install their tools (gitleaks, SOPS, Terraform) with pinned checksums, and the Python packages from the hash-pinned [`.github/gate-requirements.txt`](.github/gate-requirements.txt) and [`.github/test-requirements.txt`](.github/test-requirements.txt).
+The [gate workflow](.github/workflows/gate.yml) runs `gate.sh --all` on every push and pull request, and weekly. The [tests workflow](.github/workflows/tests.yml) runs the structure check, pytest and `terraform test` on every push and pull request. Both install their tools (gitleaks, SOPS, Terraform) with pinned checksums, and the Python packages from the hash-pinned [`.github/gate-requirements.txt`](.github/gate-requirements.txt) and [`.github/test-requirements.txt`](.github/test-requirements.txt).
 
 Shell scripts must keep LF line endings: they run on Linux hosts, though the repo is edited on Windows too. Design decisions are recorded in [`docs/adr/`](docs/adr/).
 
