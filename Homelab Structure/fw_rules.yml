@@ -710,16 +710,19 @@ rules:
     chain: forward
     applies_to: [router1, router2]
 
-  - name: metrics-to-jellyfin-exporter
-    description: Prometheus pulls jellyfin_exporter beside Jellyfin
+  - name: metrics-to-dmz-nodes
+    description: Prometheus pulls jellyfin_exporter and relay1's exporters, which k3s-dmz1 forwards
     src: Metrics
     dst: DMZ_Nodes
     protocol: tcp
-    ports: [9594]
+    ports: [9101, 9102, 9594]
     action: accept
     chain: forward
     applies_to: [router1, router2]
-    notes: Issue #111. An alert on jellyfin_up covers server down, so no blackbox probe.
+    notes: |
+      Issue #111: 9594 is jellyfin_exporter; an alert on jellyfin_up covers server down, so no
+      blackbox probe. Issue #156: 9101 (relay1's node exporter) and 9102 (relay1's Traefik
+      metrics) are forwarded by k3s-dmz1's host to relay1 over the Headscale tailnet.
 
   - name: metrics-to-nut
     description: NUT's exporter on metrics1 reads nut1's NUT server
