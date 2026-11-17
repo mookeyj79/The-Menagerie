@@ -291,6 +291,11 @@ services:
   exposure:
     dns_names:
     - gitlab
+  notes: |
+    Issue #187. The nightly GitLab backup and the repo export push to file1
+    over SSH (devops-to-file1-backups), each into a dated folder file1 keeps
+    for 7 nights. devops1 keeps only the newest backup (backup_keep_time of
+    one day).
 - name: gitlab-runner
   description: Docker executor with the Toolbox image
   state: planned

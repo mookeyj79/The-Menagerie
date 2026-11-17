@@ -122,6 +122,16 @@ rules:
     chain: input
     applies_to: [router1, router2]
 
+  - name: metrics-router-api
+    description: The RouterOS exporter on metrics1 reads each router's API over TLS
+    src: Metrics
+    protocol: tcp
+    ports: [8729]
+    action: accept
+    chain: input
+    applies_to: [router1, router2]
+    notes: Issue #187. The exporter runs on metrics1 and Prometheus scrapes it locally; nothing listens for scrapes on the routers.
+
   - name: ospf-on-architecture
     src: Architecture
     protocol: ospf
@@ -631,6 +641,28 @@ rules:
     chain: forward
     applies_to: [router2]
 
+  - name: devops-to-file1-backups
+    description: The GitLab backup and the repo export land on file1 over SSH
+    src: DevOps
+    dst: FileServers
+    protocol: tcp
+    ports: [22]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+    notes: Issue #187. Two file1 accounts, each limited by rrsync to writing its own folder, so no client can delete (issue #72).
+
+  - name: runners-to-workstations
+    description: The pipeline pushes workstation management, SSH to Mint and WinRM over HTTPS to Windows
+    src: Runners
+    dst: Users
+    protocol: tcp
+    ports: [22, 5986]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+    notes: Issue #187. The pipeline always pushes; nothing in Users reaches into DevOps for it. A workstation that is off, asleep or away gets the change at the next run, with no retry.
+
   # ==========================================================================
   # Bastion
   # ==========================================================================
@@ -688,6 +720,39 @@ rules:
     chain: forward
     applies_to: [router1, router2]
     notes: Issue #111. An alert on jellyfin_up covers server down, so no blackbox probe.
+
+  - name: metrics-to-nut
+    description: NUT's exporter on metrics1 reads nut1's NUT server
+    src: Metrics
+    dst: NUT
+    protocol: tcp
+    ports: [3493]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+    notes: Issue #187. Proxy exporters run on metrics1; everything else reaches Prometheus through node_exporter's textfile collector on 9100 (metrics-scrape).
+
+  - name: metrics-to-hypervisors-api
+    description: The PVE exporter on metrics1 reads each Proxmox host's API
+    src: Metrics
+    dst: Hypervisors
+    protocol: tcp
+    ports: [8006]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: Issue #187.
+
+  - name: metrics-to-switches-snmp
+    description: snmp_exporter on metrics1 polls the switches
+    src: Metrics
+    dst: Switches
+    protocol: udp
+    ports: [161]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: Issue #187.
 
   - name: security-to-ca
     description: step-ca service and SSH host certificates for the Security hosts
@@ -747,7 +812,7 @@ rules:
   # ==========================================================================
 
   - name: nut-to-pve5-api
-    description: Token limited to starting and stopping VMs
+    description: Token limited to starting and stopping VMs and reading their guest agents
     src: NUT
     dst: Hypervisor_pve5
     protocol: tcp
@@ -755,6 +820,7 @@ rules:
     action: accept
     chain: forward
     applies_to: [router2]
+    notes: Issue #187. The start order's health checks use the same path, so they need no rule of their own.
 
   - name: nut-clients
     src: [Hypervisors, FileServers]
