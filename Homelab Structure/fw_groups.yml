@@ -498,8 +498,13 @@ groups:
     notes: |
       A RouterOS address list built from DNS names (issue #64), so it has no
       fixed members here. Starts with Debian mirrors and Backblaze B2; each service adds its domains when it is built. The NVR host
-      adds Frigate's image registry (ghcr.io; issue #98). DNS-name
-      lists can miss CDN addresses, an accepted risk.
+      adds Frigate's image registry (ghcr.io; issue #98). Raspberry Pi OS
+      hosts (bastion1, nut1) add Raspberry Pi's apt archive
+      (archive.raspberrypi.com). nut1 adds Docker's apt repository
+      (download.docker.com) and Docker Hub's registry, auth and image
+      download hosts (registry-1.docker.io, auth.docker.io,
+      production.cloudfront.docker.com) for PeaNUT (Blog issue #649).
+      DNS-name lists can miss CDN addresses, an accepted risk.
 
   - name: Cloudflare_Tunnel
     category: role
