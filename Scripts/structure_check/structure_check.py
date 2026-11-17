@@ -31,6 +31,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DIR = REPO_ROOT / "Homelab Structure"
 
 CIDR_RE = re.compile(r"^\d{1,3}(\.\d{1,3}){3}(/\d{1,2})?$")
+FQDN_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
+
+# Values fw_rules.yml's schema header allows for its enumerated fields.
+RULE_ACTIONS = {"accept", "drop", "fasttrack"}
+RULE_FAMILIES = {"ipv4", "ipv6"}
+CONNECTION_STATES = {"new", "established", "related", "invalid", "untracked"}
 
 # Keys services.yml's schema header allows, per section ("" is the top level).
 # A stale key such as vault: would otherwise slip past review.
@@ -162,6 +168,16 @@ def check(st):
             name = member_host(m)
             if name and name not in st.hostnames:
                 fail(f"fw_groups.yml: {g.get('name')} names unknown hostname {name}")
+            # RouterOS stores a mistyped name silently and it never resolves.
+            if isinstance(m, dict) and "fqdn" in m and not FQDN_RE.match(str(m["fqdn"])):
+                fail(f"fw_groups.yml: {g.get('name')} has invalid fqdn {m['fqdn']}")
+
+    # Interface lists each router's interfaces belong to (systems.yml).
+    router_lists = {
+        str(s.get("hostname")): {str(l) for i in as_list(s.get("interfaces")) if isinstance(i, dict)
+                                 for l in as_list(i.get("interface_lists"))}
+        for s in st.systems if str(s.get("hostname")) in st.routers
+    }
 
     for r in st.rules:
         for ref in as_list(r.get("src")) + as_list(r.get("dst")):
@@ -171,6 +187,22 @@ def check(st):
         for target in as_list(r.get("applies_to")):
             if str(target) not in st.routers:
                 fail(f"fw_rules.yml: {r.get('name')} applies to {target}, which is not a router")
+        name = r.get("name")
+        if str(r.get("action")) not in RULE_ACTIONS:
+            fail(f"fw_rules.yml: {name} has unknown action {r.get('action')}")
+        if "family" in r and str(r["family"]) not in RULE_FAMILIES:
+            fail(f"fw_rules.yml: {name} has unknown family {r['family']}")
+        for state in as_list(r.get("connection_state")):
+            if str(state) not in CONNECTION_STATES:
+                fail(f"fw_rules.yml: {name} has unknown connection_state {state}")
+        if "log" in r and not isinstance(r["log"], bool):
+            fail(f"fw_rules.yml: {name} log must be true or false")
+        for key in ("in_interface_list", "out_interface_list"):
+            if key not in r:
+                continue
+            for target in as_list(r.get("applies_to")):
+                if str(target) in router_lists and str(r[key]) not in router_lists[str(target)]:
+                    fail(f"fw_rules.yml: {name} names {key} {r[key]}, which {target} does not have")
 
     # Port forwards: a dnat block sits on a forward-chain tcp/udp accept with
     # ports, above drop-unlisted-private (after dst-nat the destination is

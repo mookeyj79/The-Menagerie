@@ -29,11 +29,27 @@
 #                 pattern).
 #   ports       : list of dst ports. Each entry is an int, or a string
 #                 "N-M" for a range (see sunshine-stream-udp).
-#   action      : accept | drop
+#   src_ports   : optional; list of source ports, same forms as ports
+#   action      : accept | drop | fasttrack
+#                   - fasttrack: RouterOS fasttrack-connection; matching
+#                     connections then skip the rules, queues and counters
+#                     below, so it carries no src/dst of its own and any
+#                     connection that must keep its queues is accepted
+#                     above it
 #   chain       : input | forward
 #                   - input:   traffic destined FOR the router itself
 #                   - forward: traffic routed THROUGH the router
 #   applies_to  : list of systems.yml router hostnames this rule renders on
+#   family      : optional; ipv4 (default) | ipv6. ipv6 renders into the
+#                 router's IPv6 firewall.
+#   connection_state : optional; list of new | established | related |
+#                 invalid | untracked. Omitted, the rule matches any state.
+#   in_interface_list  : optional; interface list the traffic arrives on.
+#   out_interface_list : optional; interface list the traffic leaves by.
+#                 Both name a list in systems.yml `interface_lists`, which
+#                 every router in applies_to must have (WAN: the router's
+#                 interfaces toward the internet).
+#   log         : optional; true logs every packet the rule matches
 #   dnat        : optional; a port forward. Only on a forward-chain accept
 #                 with protocol tcp or udp and ports. The router also
 #                 renders a dst-nat rule for the same protocol and ports,
@@ -51,7 +67,13 @@
 #                                       differs from the public port. The
 #                                       dst-nat rewrites the port, and the
 #                                       accept matches the rewritten port.
-#   notes       : optional; structural context only
+#   notes       : optional; prose for readers only. No renderer reads it:
+#                 everything a rule matches is in the fields above
+#                 (blog issue #628).
+#
+# Groups are never negated (no !Group): an empty list negated would match
+# everything. A group whose hosts are planned or have no address yet renders
+# as an empty list, so its rules match nothing until the host exists.
 #
 # No rule uses dnat today: the house has zero inbound ports (issue #148), and
 # public traffic arrives over Cloudflare Tunnel or the Linode relay.
@@ -70,6 +92,7 @@ rules:
     action: drop
     chain: input
     applies_to: [router1, router2]
+    connection_state: [invalid]
 
   - name: input-accept-established
     src: any
@@ -77,6 +100,7 @@ rules:
     action: accept
     chain: input
     applies_to: [router1, router2]
+    connection_state: [established, related, untracked]
 
   - name: input-accept-loopback
     src: any
@@ -93,7 +117,7 @@ rules:
     action: drop
     chain: input
     applies_to: [router1]
-    notes: in-interface-list=WAN
+    in_interface_list: WAN
 
   - name: client-zone-dhcp
     description: DHCP from each client zone's gateway router
@@ -140,20 +164,17 @@ rules:
     applies_to: [router1, router2]
     notes: Authenticated OSPF on architecture-1 only; zone VLANs are passive and router3 is not a neighbour.
 
-  - name: icmp-rate-limited
+  - name: input-accept-icmp
     src: any
     protocol: icmp
     action: accept
     chain: input
     applies_to: [router1, router2]
-
-  - name: portscan-detect-and-drop
-    src: any
-    protocol: tcp
-    action: drop
-    chain: input
-    applies_to: [router1, router2]
-    notes: Two-step pattern - add-src-to-address-list PortScanners on psd match, then drop src-address-list=PortScanners.
+    notes: |
+      No rate limit: MikroTik's manual calls one unnecessary in most cases,
+      since the Linux kernel already limits ICMP to 100 packets a second.
+      There is no port-scan rule either: every input accept above names its
+      sources, so a scanner reaches nothing (blog issue #628).
 
   - name: input-final-drop
     src: any
@@ -172,6 +193,37 @@ rules:
     action: drop
     chain: forward
     applies_to: [router1, router2]
+    connection_state: [invalid]
+
+  - name: forward-accept-established-queued-from
+    description: RetroNet and Guest skip FastTrack on router1, so their queues still apply
+    src: [RetroNet, Guest]
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router1]
+    connection_state: [established, related]
+    notes: Issue #64. FastTrack marks the whole connection, so the replies need forward-accept-established-queued-to as well.
+
+  - name: forward-accept-established-queued-to
+    description: Replies to RetroNet and Guest, kept off FastTrack on router1
+    src: any
+    dst: [RetroNet, Guest]
+    protocol: any
+    action: accept
+    chain: forward
+    applies_to: [router1]
+    connection_state: [established, related]
+
+  - name: forward-fasttrack
+    description: Allowed connections skip the rules after their first packets
+    src: any
+    protocol: any
+    action: fasttrack
+    chain: forward
+    applies_to: [router1, router2]
+    connection_state: [established, related]
+    notes: Issue #64. Guest is fast-tracked on router2; only router1 keeps it off for its queues.
 
   - name: forward-accept-established
     src: any
@@ -179,23 +231,43 @@ rules:
     action: accept
     chain: forward
     applies_to: [router1, router2]
-    notes: FastTrack applies to these, except RetroNet and Guest on router1, whose limits depend on queues.
+    connection_state: [established, related, untracked]
 
-  - name: emergency-access-isolation
+  - name: emergency-access-isolation-from
+    description: The break-glass port reaches only its own router
     src: Emergency_Console_Access
     protocol: any
     action: drop
     chain: forward
     applies_to: [router1, router2]
-    notes: Applied both directions on the off-bridge port; it reaches only its own router.
+
+  - name: emergency-access-isolation-to
+    description: Nothing is routed to the break-glass port
+    src: any
+    dst: Emergency_Console_Access
+    protocol: any
+    action: drop
+    chain: forward
+    applies_to: [router1, router2]
 
   - name: ipv6-blocked
+    description: IPv4 only; nothing is routed over IPv6
     src: any
     protocol: any
     action: drop
     chain: forward
     applies_to: [router1, router2]
-    notes: "IPv4 only: IPv6 is off on router1's internet side and dropped in every zone (rendered in the IPv6 firewall)."
+    family: ipv6
+    notes: Issue #64. IPv6 is off on router1's internet side and dropped in every zone.
+
+  - name: ipv6-blocked-input
+    description: No zone reaches the routers themselves over IPv6
+    src: any
+    protocol: any
+    action: drop
+    chain: input
+    applies_to: [router1, router2]
+    family: ipv6
 
   # ==========================================================================
   # DNS and time
@@ -230,7 +302,8 @@ rules:
     action: accept
     chain: forward
     applies_to: [router1, router2]
-    notes: "Issue #120. Unbound recurses, so the servers can't be named. out-interface-list=WAN on router1 and the uplink to router1 on router2 keep it to the internet. Queries cross the ISP in clear; accepted."
+    out_interface_list: WAN
+    notes: "Issue #120. Unbound recurses, so the servers can't be named; the WAN list keeps it to the internet. Queries cross the ISP in clear; accepted."
 
   - name: resolvers-recursion-udp
     description: Only the resolvers reach the internet's root, TLD and authoritative servers
@@ -241,6 +314,7 @@ rules:
     action: accept
     chain: forward
     applies_to: [router1, router2]
+    out_interface_list: WAN
     notes: Issue #120. As resolvers-recursion-tcp.
 
   - name: resolvers-to-ntp-pools
@@ -252,7 +326,8 @@ rules:
     action: accept
     chain: forward
     applies_to: [router1, router2]
-    notes: "Issues #68 and #120: chrony runs beside Unbound on dns1 and file1, and NTP pools are pulled directly. Pool servers rotate, so they can't be named. out-interface-list=WAN on router1 and the uplink to router1 on router2 keep it to the internet."
+    out_interface_list: WAN
+    notes: "Issues #68 and #120: chrony runs beside Unbound on dns1 and file1, and NTP pools are pulled directly. Pool servers rotate, so they can't be named; the WAN list keeps it to the internet."
 
   - name: direct-dns-zones-to-public-resolvers-tcp
     description: Guest, RetroNet and DMZ use Quad9 and Cloudflare directly
@@ -934,7 +1009,7 @@ rules:
     action: accept
     chain: forward
     applies_to: [router1, router2]
-    notes: out-interface-list=WAN on router1
+    out_interface_list: WAN
 
   - name: internet-web
     src: [App_Servers, DevOps, DMZ]
@@ -943,7 +1018,8 @@ rules:
     action: accept
     chain: forward
     applies_to: [router1, router2]
-    notes: "out-interface-list=WAN on router1. Accepted risk: a compromised host can still send data out over web ports."
+    out_interface_list: WAN
+    notes: "Accepted risk: a compromised host can still send data out over web ports."
 
   - name: dmz-to-cloudflare-tunnel-tcp
     description: cloudflared's outbound connections to Cloudflare Tunnel
@@ -1015,8 +1091,10 @@ rules:
     action: accept
     chain: forward
     applies_to: [router1, router2]
+    src_ports: [41641]
+    out_interface_list: WAN
     notes: |
-      src-port=41641, out-interface-list=WAN. Peers sit behind other NATs at
+      Peers sit behind other NATs at
       unknown addresses and ports, so the destination can't be narrowed;
       without this rule connections fall back to DERP over TCP 443. The
       Phase 1 check is a direct (not relayed) connection from an admin laptop
@@ -1049,7 +1127,17 @@ rules:
     action: accept
     chain: forward
     applies_to: [router1]
-    notes: Per-device connection and bandwidth limits; drops are logged. Game and service ports are added through Git.
+    notes: Game and service ports are added through Git. Per-device connection and bandwidth limits are queues, set by the RetroNet Steps.
+
+  - name: retronet-drop-logged
+    description: Whatever RetroNet's allowlist didn't accept is dropped and logged
+    src: RetroNet
+    protocol: any
+    action: drop
+    chain: forward
+    applies_to: [router1]
+    log: true
+    notes: Issue #64 (logged drops). Sits last before forward-final-drop, so only RetroNet's misses are logged.
 
   - name: forward-final-drop
     src: any

@@ -21,7 +21,7 @@ systems.yml:
   systems:
     - hostname: router1
       role: router
-      interfaces: [{name: lan, vlan: hardware-management}]
+      interfaces: [{name: lan, vlan: hardware-management, interface_lists: [WAN]}]
     - hostname: router2
       role: router
     - hostname: switch1
@@ -65,6 +65,7 @@ fw_groups.yml:
         - 10.0.5.9
         - {host: router1, interface: lan}
         - {cidr: 10.0.6.0/24, comment: lab}
+        - {fqdn: deb.debian.org, comment: Debian}
 fw_rules.yml:
   rules:
     - name: devops-to-dmz
@@ -185,6 +186,25 @@ CASES = [
     ("firewall rule applies to a non-router",
      lambda f: f["fw_rules.yml"]["rules"][0].update(applies_to=["switch1", "router2"]),
      "switch1, which is not a router"),
+    ("rule with every new field passes",
+     lambda f: f["fw_rules.yml"]["rules"][1].update(
+         action="fasttrack", family="ipv6", log=True, src_ports=[41641],
+         connection_state=["established", "related"], out_interface_list="WAN"), None),
+    ("rule with unknown action",
+     lambda f: f["fw_rules.yml"]["rules"][0].update(action="reject"), "unknown action reject"),
+    ("rule with unknown family",
+     lambda f: f["fw_rules.yml"]["rules"][0].update(family="ipv5"), "unknown family ipv5"),
+    ("rule with unknown connection state",
+     lambda f: f["fw_rules.yml"]["rules"][0].update(connection_state=["closed"]),
+     "unknown connection_state closed"),
+    ("rule with a non-boolean log",
+     lambda f: f["fw_rules.yml"]["rules"][0].update(log="yes"), "log must be true or false"),
+    ("rule names an interface list one of its routers lacks",
+     lambda f: f["fw_rules.yml"]["rules"][0].update(out_interface_list="WAN"),
+     "out_interface_list WAN, which router2 does not have"),
+    ("firewall group has an invalid fqdn",
+     lambda f: fw_group(f, "DevOps")["members"].append({"fqdn": "deb debian org"}),
+     "invalid fqdn deb debian org"),
     ("port forward to a host the dst derives by VLAN passes",
      lambda f: add_forward(f, "k3s-dmz1", "DMZ"), None),
     ("port forward to a host the dst derives by role passes",
