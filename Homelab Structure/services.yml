@@ -291,6 +291,11 @@ services:
   exposure:
     dns_names:
     - gitlab
+  notes: |
+    Issue #187. The nightly GitLab backup and the repo export push to file1
+    over SSH (devops-to-file1-backups), each into a dated folder file1 keeps
+    for 7 nights. devops1 keeps only the newest backup (backup_keep_time of
+    one day).
 - name: gitlab-runner
   description: Docker executor with the Toolbox image
   state: planned
@@ -721,9 +726,9 @@ services:
     capture endpoint come through the tunnel; Valheim and V Rising by name
     through relay1's UDP routers over the Headscale tailnet (issue #148). A
     game's relay route, host firewall port and DNS name exist only while it
-    is deployed. The pods use hostPort, outside the mesh. relay1's go-live
-    proof checks whether Steam lists the home or the relay address; if the
-    home, the server is unlisted.
+    is deployed. The pods use hostPort, outside the mesh. The servers are
+    unlisted in Steam's browser and players join by name; the DMZ gets no
+    outbound UDP to Steam (issue #187).
 - name: wizarr
   description: Invitations to the media server
   state: planned

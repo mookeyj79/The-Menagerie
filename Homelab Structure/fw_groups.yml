@@ -375,6 +375,17 @@ groups:
     derive_from:
       role: router
 
+  - name: Switches
+    category: role
+    description: The ICX switches snmp_exporter polls
+    members:
+      - host: switch1
+      - host: switch2
+    notes: |
+      Issue #187. Not derived from role switch: switch3 sits in RetroNet as an
+      untrusted device reached only through the bastion, and switch4 (a
+      GS108PE) has no SNMP agent.
+
   - name: Untrusted_Devices
     category: role
     description: RetroNet devices managed through the bastion over the routed path

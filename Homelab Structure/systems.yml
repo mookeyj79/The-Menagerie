@@ -416,6 +416,10 @@ systems:
       Protected by binding, not a host firewall (issues #83, #107): file services listen on both
       interfaces, the UI and SSH on Central-Servers only, and the routers filter the Central-Servers
       side. Pushes the Restore set to Backblaze B2.
+      GitLab backups (issue #187): one account each for the GitLab backup and the repo export, each
+      logging in over SSH and limited by rrsync to writing its own folder, so no client can delete.
+      Each night lands in its own dated folder; a job on file1 keeps the last 7 nights and deletes
+      older ones. ZFS snapshots and the B2 retention (issue #72) apply on top.
       Data disks: 8x 10 TB in RAIDZ2. Boot on the ~256 GB SSD; the 128 GB SSD is a SLOG.
       NICs: 2x 10G SFP+ plus the original Ethernet NICs (count not confirmed).
     os: TrueNAS Scale 25
@@ -478,8 +482,9 @@ systems:
         vlan: power-management
     notes: |
       USB to ups1. Runs the start order: PDU outlets for power, a Proxmox token limited to starting
-      and stopping VMs on pve5, and health checks on each stage. Chosen because it doesn't need a
-      PoE HAT. RAM not confirmed.
+      and stopping VMs on pve5 plus the read-only guest-agent permission, and a health check on
+      each stage: the VM's guest agent answering through that API, falling back to the stage's
+      timeout (issue #187). Chosen because it doesn't need a PoE HAT. RAM not confirmed.
     os: Raspbian Lite
     owned: true
     resources:
@@ -897,7 +902,9 @@ systems:
       - name: eth0
         ip_address: 192.168.19.3
         vlan: security
-    notes: Pulls metrics from exporters in each zone; sends alerts to Pushover and Discord.
+    notes: |
+      Pulls metrics from exporters in each zone; sends alerts to Pushover and Discord. Runs the proxy
+      exporters (NUT, PVE, RouterOS and snmp_exporter) and scrapes them locally (issue #187).
     os: Debian 13
     resources:
       arch: x86_64
