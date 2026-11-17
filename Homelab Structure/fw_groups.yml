@@ -49,6 +49,15 @@
 #     comment: <optional>
 #   - cidr: <ip-or-cidr>
 #     comment: <required>
+#   - fqdn: <dns-name>
+#     comment: <optional>
+#                  - a DNS name the router resolves itself, refreshing the
+#                    addresses when their TTL runs out. CDN names can miss
+#                    addresses clients use; accepted (issue #64).
+#
+# A host member that is state: planned, or has no address yet (one a cloud
+# provider assigns), renders nothing, so the group's rules match nothing
+# until the host exists (blog issue #628).
 #
 # ============================================================================
 
@@ -218,12 +227,42 @@ groups:
   - name: Tailscale_Service
     category: role
     description: Tailscale's coordination servers and DERP relays the household tailnet dials out to
-    members: []
+    members:
+      - fqdn: controlplane.tailscale.com
+      - fqdn: login.tailscale.com
+      - fqdn: log.tailscale.com
+      - fqdn: console.tailscale.com
+      - fqdn: derp1-all.tailscale.com
+      - fqdn: derp2-all.tailscale.com
+      - fqdn: derp3-all.tailscale.com
+      - fqdn: derp4-all.tailscale.com
+      - fqdn: derp5-all.tailscale.com
+      - fqdn: derp6-all.tailscale.com
+      - fqdn: derp7-all.tailscale.com
+      - fqdn: derp8-all.tailscale.com
+      - fqdn: derp9-all.tailscale.com
+      - fqdn: derp10-all.tailscale.com
+      - fqdn: derp11-all.tailscale.com
+      - fqdn: derp12-all.tailscale.com
+      - fqdn: derp13-all.tailscale.com
+      - fqdn: derp14-all.tailscale.com
+      - fqdn: derp15-all.tailscale.com
+      - fqdn: derp16-all.tailscale.com
+      - fqdn: derp17-all.tailscale.com
+      - fqdn: derp18-all.tailscale.com
+      - fqdn: derp19-all.tailscale.com
+      - fqdn: derp20-all.tailscale.com
+      - fqdn: derp21-all.tailscale.com
+      - fqdn: derp22-all.tailscale.com
+      - fqdn: derp23-all.tailscale.com
+      - fqdn: derp24-all.tailscale.com
+      - fqdn: derp25-all.tailscale.com
+      - fqdn: derp26-all.tailscale.com
+      - fqdn: derp27-all.tailscale.com
+      - fqdn: derp28-all.tailscale.com
     notes: |
-      A RouterOS address list built from DNS names, like Named_Outbound:
-      controlplane, login, log and console.tailscale.com, plus each
-      derpN-all.tailscale.com in the DERP map
-      (controlplane.tailscale.com/derpmap/default), rendered by Ansible.
+      DERP regions 1-28 from controlplane.tailscale.com/derpmap/default,
+      written out by hand (blog issue #628) so a review shows every change.
       Tailscale recommends allowing *:443 because the DERP set grows; a
       region missing from the list only loses that relay, an accepted risk.
       Source: tailscale.com/kb/1082/firewall-ports.
@@ -470,9 +509,9 @@ groups:
     members:
       - host: nvr1
     notes: |
-      Part of the Surveillance bundle, an optional upgrade (issue #98). The rules naming this
-      group render only once the bundle is bought. Cameras are never members: they reach
-      nothing outside the zone.
+      Part of the Surveillance bundle, an optional upgrade (issue #98). While nvr1 is planned
+      the list is empty and the rules naming it match nothing. Cameras are never members:
+      they reach nothing outside the zone.
 
   # ==========================================================================
   # Public resolvers and named outbound destinations
@@ -494,26 +533,35 @@ groups:
   - name: Named_Outbound
     category: role
     description: Domains Central-Servers, Security, Management and the NVR host may reach
-    members: []
+    members:
+      - fqdn: deb.debian.org
+        comment: Debian packages
+      - fqdn: security.debian.org
+        comment: Debian security updates
+      - fqdn: archive.raspberrypi.com
+        comment: Raspberry Pi OS hosts (bastion1, nut1)
+      - fqdn: download.docker.com
+        comment: Docker's apt repository, for PeaNUT on nut1 (Blog issue #649)
+      - fqdn: registry-1.docker.io
+        comment: Docker Hub registry (PeaNUT)
+      - fqdn: auth.docker.io
+        comment: Docker Hub auth (PeaNUT)
+      - fqdn: production.cloudfront.docker.com
+        comment: Docker Hub image downloads (PeaNUT)
+      - fqdn: ghcr.io
+        comment: Frigate's image registry, for the NVR host (issue #98)
     notes: |
-      A RouterOS address list built from DNS names (issue #64), so it has no
-      fixed members here. Starts with Debian mirrors and Backblaze B2; each service adds its domains when it is built. The NVR host
-      adds Frigate's image registry (ghcr.io; issue #98). Raspberry Pi OS
-      hosts (bastion1, nut1) add Raspberry Pi's apt archive
-      (archive.raspberrypi.com). nut1 adds Docker's apt repository
-      (download.docker.com) and Docker Hub's registry, auth and image
-      download hosts (registry-1.docker.io, auth.docker.io,
-      production.cloudfront.docker.com) for PeaNUT (Blog issue #649).
-      DNS-name lists can miss CDN addresses, an accepted risk.
+      A RouterOS address list built from DNS names (issue #64). Each service
+      adds its domains when it is built. Backblaze B2's endpoint is named for
+      the bucket's region, so it is added when the bucket is made.
 
   - name: Cloudflare_Tunnel
     category: role
     description: Cloudflare Tunnel edge that cloudflared in the DMZ connects out to
-    members: []
-    notes: |
-      A RouterOS address list built from region1.v2.argotunnel.com and
-      region2.v2.argotunnel.com (issue #93), like Named_Outbound, so it has
-      no fixed members here.
+    members:
+      - fqdn: region1.v2.argotunnel.com
+      - fqdn: region2.v2.argotunnel.com
+    notes: Issue #93.
 
   - name: Relay
     category: role
@@ -521,8 +569,9 @@ groups:
     members:
       - host: relay1
     notes: |
-      Issue #148. A RouterOS address list holding relay1's public address,
-      which Linode assigns when OpenTofu creates the VPS.
+      Issue #148. relay1's public address, which Linode assigns when
+      OpenTofu creates the VPS. Until it is in systems.yml the list is empty
+      and the rules naming it match nothing.
 
   - name: Friend_Countries
     category: role
@@ -547,9 +596,3 @@ groups:
       - cidr: 10.0.0.0/8
       - cidr: 172.16.0.0/12
       - cidr: 192.168.0.0/16
-
-  - name: PortScanners
-    category: role
-    description: Automatically blocklisted hosts (psd port-scan detection)
-    members: []
-    notes: Populated at runtime by the router; not from inventory.

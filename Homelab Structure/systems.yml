@@ -12,7 +12,8 @@
 #   description     one-line human-readable purpose
 #   hardware        model of off-the-shelf hardware
 #   host            parent hypervisor hostname or group name (type: vm only)
-#   interfaces      list of { name, ip_address, vlan, description, state }
+#   interfaces      list of { name, ip_address, vlan, description, state,
+#                   interface_lists }
 #   live            what a present device runs today that differs from the
 #                   design; removed once Phase 1 makes it match
 #   notes           operational notes; block scalar `|` for multi-line
@@ -34,6 +35,12 @@
 #   host:
 #     Reference to a hostname or group name defined in the `groups` block.
 #     Only valid on type: vm entries. Omit for physical hosts.
+#
+#   interfaces[].interface_lists:
+#     Routers only. RouterOS interface lists the interface belongs to, named
+#     by fw_rules.yml's in_interface_list / out_interface_list. WAN is the
+#     router's interfaces toward the internet: router1's port to ispgw1,
+#     router2's uplink to router1 (blog issue #628).
 #
 #   interfaces[].state:
 #     Optional; defaults to the system's state. `planned` on a present device
@@ -176,6 +183,7 @@ systems:
       - name: external_bridge
         ip_address: 192.168.2.2
         description: Internet side, behind ispgw1 in passthrough; IPv6 off
+        interface_lists: [WAN]
       - name: VLAN101
         ip_address: 10.0.1.1
         vlan: hardware-management
@@ -227,6 +235,8 @@ systems:
       - name: VLAN301
         ip_address: 192.168.3.2
         vlan: architecture-1
+        description: Uplink to router1
+        interface_lists: [WAN]
       - name: VLAN16
         ip_address: 192.168.16.1
         vlan: central-servers
