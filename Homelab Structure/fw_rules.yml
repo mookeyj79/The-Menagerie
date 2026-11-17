@@ -233,6 +233,17 @@ rules:
     applies_to: [router1, router2]
     notes: Issue #120. As resolvers-recursion-tcp.
 
+  - name: resolvers-to-ntp-pools
+    description: chrony on the resolvers syncs to the public NTP pools
+    src: Resolvers
+    dst: any
+    protocol: udp
+    ports: [123]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: "Issues #68 and #120: chrony runs beside Unbound on dns1 and file1, and NTP pools are pulled directly. Pool servers rotate, so they can't be named. out-interface-list=WAN on router1 and the uplink to router1 on router2 keep it to the internet."
+
   - name: direct-dns-zones-to-public-resolvers-tcp
     description: Guest, RetroNet and DMZ use Quad9 and Cloudflare directly
     src: [Guest, RetroNet, DMZ]
@@ -346,6 +357,28 @@ rules:
     action: accept
     chain: forward
     applies_to: [router2]
+
+  - name: users-to-gitlab
+    description: GitLab web and Git over SSH, for pushing code
+    src: Users
+    dst: GitLab
+    protocol: tcp
+    ports: [22, 443]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+    notes: Issue #69.
+
+  - name: users-to-log-collectors
+    description: Elastic Agent on Users workstations and tailgw1 ships logs to Security Onion
+    src: Users
+    dst: Log_Collectors
+    protocol: tcp
+    ports: [5055, 8220]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+    notes: Issue #71. Users' workstations have no CrowdSec agent, but their logs still reach Security Onion. Fleet and Elastic Agent ingest only; no syslog or LAPI.
 
   - name: users-and-guests-to-printers
     description: Guests enter the printer's address; no discovery relay
@@ -504,6 +537,17 @@ rules:
     chain: forward
     applies_to: [router1, router2]
 
+  - name: app-servers-to-gitlab
+    description: Argo CD reads the Apps repo, and the cluster pulls private images from GitLab's registry
+    src: App_Nodes
+    dst: GitLab
+    protocol: tcp
+    ports: [443, 5050]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+    notes: Issue #69. 5050 is GitLab's documented registry port when the registry shares GitLab's domain; no ticket fixed it.
+
   # ==========================================================================
   # DevOps (named deployment targets)
   # ==========================================================================
@@ -645,6 +689,39 @@ rules:
     applies_to: [router1, router2]
     notes: Issue #111. An alert on jellyfin_up covers server down, so no blackbox probe.
 
+  - name: security-to-ca
+    description: step-ca service and SSH host certificates for the Security hosts
+    src: Security
+    dst: CAs
+    protocol: tcp
+    ports: [443]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+    notes: Issue #66. Prometheus and Grafana on metrics1 carry step-ca certificates.
+
+  - name: metrics-to-sso
+    description: Grafana's OIDC token exchange with Authelia
+    src: Metrics
+    dst: SSO
+    protocol: tcp
+    ports: [443]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+    notes: Issue #66. Grafana logs users in through Authelia.
+
+  - name: runners-to-prometheus
+    description: The pipeline's pre-flight check queries backup freshness before anything destructive
+    src: Runners
+    dst: Metrics
+    protocol: tcp
+    ports: [9090]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+    notes: Issue #72. Prometheus's query API on its default port; the one path DevOps starts into Security besides logs.
+
   - name: logs-to-security-tcp
     description: Elastic Agent/Fleet, syslog and the CrowdSec LAPI; the DMZ is the one named exception
     src: [Central_Servers, App_Servers, DevOps, DMZ_Nodes, Fabrication, NVR, Hardware_Management, Server_Management, Power_Management, Routers]
@@ -654,7 +731,7 @@ rules:
     action: accept
     chain: forward
     applies_to: [router1, router2]
-    notes: Nothing else reaches Security.
+    notes: Besides users-to-log-collectors and runners-to-prometheus, nothing else reaches Security.
 
   - name: logs-to-security-udp
     src: [Hardware_Management, Server_Management, Power_Management, Routers]

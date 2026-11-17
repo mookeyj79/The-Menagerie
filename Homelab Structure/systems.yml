@@ -585,8 +585,9 @@ systems:
         description: 1G NIC cabled to switch2's mirror port; PCI passthrough to secmon1, no host address
         state: planned
     notes: |
-      2 TB SSD, 1x 10G SFP+ and 1x 1G Ethernet. Memory fully allocated; 46 vCPUs on 24 threads,
-      deliberately overcommitted. Tags the Smart Home VLAN (24) to ha1 only (issue #98) and the
+      2 TB SSD, 1x 10G SFP+ and 1x 1G Ethernet. 8 GB for the host and 115 GB for VMs, leaving
+      5 GB free after crowdsec1 shrank (issue #71); 45 vCPUs on 24 threads, deliberately
+      overcommitted. Tags the Smart Home VLAN (24) to ha1 only (issue #98) and the
       Users VLAN (20) to tailgw1 only (issue #146). A pve5 failure loses five zones and
       remote-user access; accepted.
     os: Proxmox VE 9
@@ -814,11 +815,12 @@ systems:
     notes: |
       Runs every Feeder1 and Seeder1 app and its exporters, Nextcloud, Tdarr, Homepage,
       Adminer, Redis-Insight, Argo CD, the internal proxy for .lan names and the gluetun VPN pod.
+      45 GB in the placement decision (issue #68), less the 4 GB that went to ha1 (issue #98).
     os: Debian 13
     resources:
       arch: x86_64
       cpu: 12
-      ram_gb: 40
+      ram_gb: 41
       storage_gb: 600
     role: server
     state: planned
@@ -908,19 +910,21 @@ systems:
 
   - hostname: crowdsec1
     ansible_roles: [common, crowdsec_lapi]
-    description: The one CrowdSec LAPI; SOAR reserved here as an optional upgrade
+    description: The one CrowdSec LAPI
     host: pve5
     interfaces:
       - name: eth0
         ip_address: 192.168.19.4
         vlan: security
-    notes: Console not enrolled. Bans public IPs only.
+    notes: |
+      Console not enrolled. Bans public IPs only. Sized by issue #71, which shrank the placement
+      decision's CrowdSec and SOAR reservation; SOAR moves to the planned Security box.
     os: Debian 13
     resources:
       arch: x86_64
-      cpu: 2
-      ram_gb: 8
-      storage_gb: 50
+      cpu: 1
+      ram_gb: 2
+      storage_gb: 20
     role: server
     state: planned
     type: vm
