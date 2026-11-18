@@ -427,6 +427,19 @@ groups:
       Management /28, so its traffic to router1 crosses router2's forward
       chain.
 
+  - name: Router_Uplinks
+    category: role
+    description: router2's and router3's own addresses toward router1, which their own DNS and NTP leave from until Step 2.3
+    members:
+      - host: router2
+        interface: VLAN301
+      - host: router3
+        interface: GigabitEthernet0/0.302
+    notes: |
+      Blog issue #728. Their own traffic crosses router1's forward chain, so
+      once Step 1.12 puts router1 on default deny it needs the temporary
+      router-uplinks-to-* rules.
+
   - name: Switches
     category: role
     description: The ICX switches snmp_exporter polls
@@ -532,7 +545,7 @@ groups:
 
   - name: Public_Resolvers
     category: role
-    description: Quad9 and Cloudflare; the only DNS Guest, RetroNet and DMZ reach, and Management and the Unbound zones until Step 2.3
+    description: Quad9 and Cloudflare; the only DNS Guest, RetroNet and DMZ reach, and Management, the Unbound zones and router2 until Step 2.3
     members:
       - cidr: 9.9.9.9
         comment: Quad9

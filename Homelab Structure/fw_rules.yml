@@ -425,6 +425,52 @@ rules:
     applies_to: [router1, router2]
     notes: Blog issue #688. Temporary, as unbound-zones-to-public-resolvers-tcp; Step 2.3 removes it.
 
+  - name: management-to-ntp-pools
+    description: Temporary; Management and Devices take time from the public NTP pools until the house's resolvers serve it
+    src: [Hardware_Management, Server_Management, Power_Management, Devices]
+    dst: any
+    protocol: udp
+    ports: [123]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    out_interface_list: WAN
+    notes: "Blog issue #729. Temporary, beside #645's DNS rule: Step 1.10 applies it so bastion1, nut1 (no hardware clock), the switches, pdu1 and Devices keep time once default deny is on. Pool servers rotate, so they can't be named; the WAN list keeps it to the internet. Step 2.3 removes it when they point at dns1's chrony."
+
+  - name: router-uplinks-to-public-resolvers-tcp
+    description: Temporary; router2 and router3 resolve their own names through Quad9 and Cloudflare until the house's resolvers exist
+    src: Router_Uplinks
+    dst: Public_Resolvers
+    protocol: tcp
+    ports: [53]
+    action: accept
+    chain: forward
+    applies_to: [router1]
+    notes: "Blog issue #728. Temporary, like #645/#688: Step 1.12 applies it so router2 keeps resolving its own fqdn address-list members (Named_Outbound, Tailscale_Service) once router1 is default deny; router3 uses it after Step 1.13. Step 2.3 removes it when router2 points at dns1."
+
+  - name: router-uplinks-to-public-resolvers-udp
+    description: Temporary; router2 and router3 resolve their own names through Quad9 and Cloudflare until the house's resolvers exist
+    src: Router_Uplinks
+    dst: Public_Resolvers
+    protocol: udp
+    ports: [53]
+    action: accept
+    chain: forward
+    applies_to: [router1]
+    notes: Blog issue #728. Temporary, as router-uplinks-to-public-resolvers-tcp; Step 2.3 removes it.
+
+  - name: router-uplinks-to-ntp-pools
+    description: Temporary; router2 and router3 take their own time from the public NTP pools until the house's resolvers serve it
+    src: Router_Uplinks
+    dst: any
+    protocol: udp
+    ports: [123]
+    action: accept
+    chain: forward
+    applies_to: [router1]
+    out_interface_list: WAN
+    notes: "Blog issue #728. Temporary, as router-uplinks-to-public-resolvers-tcp: Step 1.12 applies it; Step 2.3 removes it when router2 points at dns1's chrony."
+
   - name: dns-bypass-drop-tcp
     description: Plain DNS and DNS over TLS to the internet are dropped for zones that use Unbound
     src: [Users, App_Servers, DevOps, Security, Smart_Home, Devices, NVR, Central_Servers]
