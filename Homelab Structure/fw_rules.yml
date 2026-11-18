@@ -1091,10 +1091,12 @@ rules:
     action: accept
     chain: forward
     applies_to: [router1, router2]
-    src_ports: [41641]
+    src_ports: [41641, 41642]
     out_interface_list: WAN
     notes: |
-      Peers sit behind other NATs at
+      Source ports are bastion1's and file1's tailnet_port (systems.yml), each
+      kept unchanged by router1's source NAT (blog issue #637). tailgw1's
+      41643 leaves through Users' internet-any. Peers sit behind other NATs at
       unknown addresses and ports, so the destination can't be narrowed;
       without this rule connections fall back to DERP over TCP 443. The
       Phase 1 check is a direct (not relayed) connection from an admin laptop

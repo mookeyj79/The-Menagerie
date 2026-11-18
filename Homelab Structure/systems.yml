@@ -22,6 +22,8 @@
 #   resources       { arch, cpu, ram_gb, storage_gb, gpu }
 #   role            broad function (hypervisor, router, server, identity, ...)
 #   state           present | planned | decommissioned
+#   tailnet_port    household-tailnet hosts behind router1 only; tailscaled's
+#                   UDP port, unique per host
 #   tags            optional free-form labels (e.g. ai_ml)
 #   type            physical | vm | lxc | network_device | appliance
 #
@@ -45,6 +47,13 @@
 #   interfaces[].state:
 #     Optional; defaults to the system's state. `planned` on a present device
 #     means the device does not run this interface yet.
+#
+#   tailnet_port:
+#     The UDP port tailscaled listens on (its --port). Router1 renders one
+#     source-NAT rule per host that keeps this port unchanged on the way out,
+#     so Tailscale sees an easy NAT and connects direct. Outbound only; zero
+#     inbound ports holds. Unique per host, because all of them share
+#     router1's one public address (blog issue #637).
 #
 #   owned:
 #     Whether the hardware is physically owned today. Independent of state: a
@@ -395,6 +404,7 @@ systems:
       storage_gb: 128
     role: server
     state: planned
+    tailnet_port: 41641
     type: physical
 
   - hostname: file1
@@ -441,6 +451,7 @@ systems:
       storage_gb: 256
     role: server
     state: present
+    tailnet_port: 41642
     type: physical
 
   - hostname: dns2
@@ -1017,6 +1028,7 @@ systems:
       storage_gb: 8
     role: server
     state: planned
+    tailnet_port: 41643
     type: vm
 
   - hostname: nvr1
