@@ -11,9 +11,10 @@
 #   description : human-readable purpose
 #   zone        : security zone from the Security zone model (issue #63)
 #   state       : present | planned. `present` only once the routers run it as described here.
-#   dhcp         : { enabled, pool, lease_time } — top-level default; a subnet
+#   dhcp         : { enabled, pool, lease_time, dns? } — top-level default; a subnet
 #                  entry may override this if one router's segment differs
-#                  (e.g. no DHCP on a transit-only subnet).
+#                  (e.g. no DHCP on a transit-only subnet). dns lists the
+#                  DNS servers the DHCP server hands out (RouterOS dns-server).
 #   id          : 802.1Q VLAN ID
 #   notes       : free-form operational notes
 #   subnets     : list of { cidr, gateway_host, gateway_interface, dhcp? }.
@@ -196,6 +197,7 @@ vlans:
         dhcp:
           enabled: true
           lease_time: 24h
+          dns: [9.9.9.9, 149.112.112.112, 1.1.1.1, 1.0.0.1]   # temporary, blog issue #688: Quad9 and Cloudflare until Step 2.3 moves it to dns1
           pool: 192.168.20.128-192.168.20.254
         gateway_host: router2
         gateway_interface: VLAN20
@@ -211,6 +213,7 @@ vlans:
         dhcp:
           enabled: true
           lease_time: 6h
+          dns: [9.9.9.9, 149.112.112.112, 1.1.1.1, 1.0.0.1]   # Quad9 and Cloudflare
           pool: 192.168.21.10-192.168.21.254
         gateway_host: router2
         gateway_interface: VLAN21
@@ -225,6 +228,7 @@ vlans:
         dhcp:
           enabled: true
           lease_time: 6h
+          dns: [9.9.9.9, 149.112.112.112, 1.1.1.1, 1.0.0.1]   # temporary, blog issue #688: Quad9 and Cloudflare until Step 2.3 moves it to dns1
           pool: 192.168.22.50-192.168.22.62
         gateway_host: router2
         gateway_interface: VLAN22
@@ -263,6 +267,7 @@ vlans:
         dhcp:
           enabled: true
           lease_time: 6h
+          dns: [9.9.9.9, 149.112.112.112, 1.1.1.1, 1.0.0.1]   # temporary, blog issue #688: Quad9 and Cloudflare until Step 2.3 moves it to dns1
           pool: 192.168.24.20-192.168.24.62
         gateway_host: router2
         gateway_interface: VLAN24

@@ -381,6 +381,28 @@ rules:
     applies_to: [router1, router2]
     notes: Blog issue #645. Temporary, as management-to-public-resolvers-tcp; Step 2.3 removes it.
 
+  - name: unbound-zones-to-public-resolvers-tcp
+    description: Temporary; the Unbound zones resolve through Quad9 and Cloudflare until the house's resolvers exist
+    src: [Users, App_Servers, DevOps, Security, Smart_Home, Devices, NVR, Central_Servers]
+    dst: Public_Resolvers
+    protocol: tcp
+    ports: [53]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: "Blog issue #688. Temporary, widening #645's Management rule: Step 1.10 applies it so the zones dns-bypass-drop-tcp/-udp cover still resolve names once default deny is on, and their DHCP hands out Quad9 and Cloudflare (vlans.yml). App_Servers, Security and NVR match nothing until their hosts arrive. Step 2.3 removes it with Management's when the zones move to dns1."
+
+  - name: unbound-zones-to-public-resolvers-udp
+    description: Temporary; the Unbound zones resolve through Quad9 and Cloudflare until the house's resolvers exist
+    src: [Users, App_Servers, DevOps, Security, Smart_Home, Devices, NVR, Central_Servers]
+    dst: Public_Resolvers
+    protocol: udp
+    ports: [53]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: Blog issue #688. Temporary, as unbound-zones-to-public-resolvers-tcp; Step 2.3 removes it.
+
   - name: dns-bypass-drop-tcp
     description: Plain DNS and DNS over TLS to the internet are dropped for zones that use Unbound
     src: [Users, App_Servers, DevOps, Security, Smart_Home, Devices, NVR, Central_Servers]
