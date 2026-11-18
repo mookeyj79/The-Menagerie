@@ -1198,6 +1198,17 @@ rules:
     chain: input
     applies_to: [router3]
 
+  - name: router3-untrusted-replies-to-bastion
+    description: Replies from router3, ap2 and switch3 to bastion1, kept above the RFC 1918 deny
+    src: Untrusted_Devices
+    dst: Bastions
+    protocol: tcp
+    action: accept
+    chain: forward
+    applies_to: [router3]
+    connection_state: [established]
+    notes: Blog issue #652. router3's IOS ACL is stateless; established matches TCP with ACK or RST set, so replies to bastion-to-untrusted-devices get through.
+
   - name: router3-retronet-deny-private
     src: RetroNet
     dst: RFC1918_Private
