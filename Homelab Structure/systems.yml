@@ -325,6 +325,9 @@ systems:
       Runs OSPF with Loopback0 192.168.254.3, a Management leg (FastEthernet2/0.101, 10.0.1.33),
       a link to router2 (GigabitEthernet0/1.303, 192.168.3.10), a Smart Home subnet
       (GigabitEthernet1/0.19, 192.168.19.65/28) and RetroNet as VLAN 21 (192.168.21.1/26).
+      No devices are left on the Smart Home subnet, and nothing but RetroNet uses the
+      GigabitEthernet1/0 cable, so Step 1.8 moves it to switch3 whole; Step 1.13 removes
+      GigabitEthernet1/0.19.
     notes: |
       Has both FXO and FXS ports for dial-up. Out of OSPF with a static default; no NAT. Reached by
       the bastion only over the routed path through router1; nothing from it back except replies.
