@@ -129,10 +129,10 @@ rules:
     applies_to: [router2]
 
   - name: admin-to-router-services
-    description: SSH, HTTPS and Winbox on the routers, from the bastion and break-glass only
+    description: SSH and HTTPS (WebFig) on the routers, from the bastion and break-glass only
     src: [Bastions, Emergency_Console_Access]
     protocol: tcp
-    ports: [22, 443, 8291]
+    ports: [22, 443]
     action: accept
     chain: input
     applies_to: [router1, router2]
