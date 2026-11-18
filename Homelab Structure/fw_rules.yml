@@ -303,6 +303,28 @@ rules:
     chain: forward
     applies_to: [router2]
 
+  - name: router1-management-to-resolvers-tcp
+    description: switch1 and pve1 to pve4 reach dns1 through router1, the first router their queries cross
+    src: [Hardware_Management, Server_Management]
+    dst: Resolvers
+    protocol: tcp
+    ports: [53]
+    action: accept
+    chain: forward
+    applies_to: [router1]
+    notes: Blog issues #722, #725 and #732. router1's /28s of VLANs 101 and 102 route through router1 to dns1; router2 then accepts the traffic with unbound-zones-to-resolvers-tcp. Without it router1's half of Management loses DNS when Step 2.3 removes management-to-public-resolvers-tcp.
+
+  - name: router1-management-to-resolvers-udp
+    description: switch1 and pve1 to pve4 reach dns1 through router1, the first router their queries cross
+    src: [Hardware_Management, Server_Management]
+    dst: Resolvers
+    protocol: udp
+    ports: [53, 123]
+    action: accept
+    chain: forward
+    applies_to: [router1]
+    notes: Blog issues #722, #725 and #732. As router1-management-to-resolvers-tcp, for DNS and chrony.
+
   - name: resolvers-recursion-tcp
     description: Only the resolvers reach the internet's root, TLD and authoritative servers
     src: Resolvers
@@ -402,6 +424,52 @@ rules:
     chain: forward
     applies_to: [router1, router2]
     notes: Blog issue #688. Temporary, as unbound-zones-to-public-resolvers-tcp; Step 2.3 removes it.
+
+  - name: management-to-ntp-pools
+    description: Temporary; Management and Devices take time from the public NTP pools until the house's resolvers serve it
+    src: [Hardware_Management, Server_Management, Power_Management, Devices]
+    dst: any
+    protocol: udp
+    ports: [123]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    out_interface_list: WAN
+    notes: "Blog issue #729. Temporary, beside #645's DNS rule: Step 1.10 applies it so bastion1, nut1 (no hardware clock), the switches, pdu1 and Devices keep time once default deny is on. Pool servers rotate, so they can't be named; the WAN list keeps it to the internet. Step 2.3 removes it when they point at dns1's chrony."
+
+  - name: router-uplinks-to-public-resolvers-tcp
+    description: Temporary; router2 and router3 resolve their own names through Quad9 and Cloudflare until the house's resolvers exist
+    src: Router_Uplinks
+    dst: Public_Resolvers
+    protocol: tcp
+    ports: [53]
+    action: accept
+    chain: forward
+    applies_to: [router1]
+    notes: "Blog issue #728. Temporary, like #645/#688: Step 1.12 applies it so router2 keeps resolving its own fqdn address-list members (Named_Outbound, Tailscale_Service) once router1 is default deny; router3 uses it after Step 1.13. Step 2.3 removes it when router2 points at dns1."
+
+  - name: router-uplinks-to-public-resolvers-udp
+    description: Temporary; router2 and router3 resolve their own names through Quad9 and Cloudflare until the house's resolvers exist
+    src: Router_Uplinks
+    dst: Public_Resolvers
+    protocol: udp
+    ports: [53]
+    action: accept
+    chain: forward
+    applies_to: [router1]
+    notes: Blog issue #728. Temporary, as router-uplinks-to-public-resolvers-tcp; Step 2.3 removes it.
+
+  - name: router-uplinks-to-ntp-pools
+    description: Temporary; router2 and router3 take their own time from the public NTP pools until the house's resolvers serve it
+    src: Router_Uplinks
+    dst: any
+    protocol: udp
+    ports: [123]
+    action: accept
+    chain: forward
+    applies_to: [router1]
+    out_interface_list: WAN
+    notes: "Blog issue #728. Temporary, as router-uplinks-to-public-resolvers-tcp: Step 1.12 applies it; Step 2.3 removes it when router2 points at dns1's chrony."
 
   - name: dns-bypass-drop-tcp
     description: Plain DNS and DNS over TLS to the internet are dropped for zones that use Unbound
@@ -817,6 +885,17 @@ rules:
     applies_to: [router2]
     notes: Issue #694. bastion1's legs are in router2's half of VLANs 101 and 102, so router2 forwards this traffic; router1's input rules (admin-to-router-services, admin-router-api) then accept it.
 
+  - name: bastion-to-router1-management-hosts
+    description: SSH, HTTPS and the Proxmox UI on switch1 and pve1 to pve4, in router1's half of the Management VLANs
+    src: Bastions
+    dst: [Hardware_Management, Server_Management]
+    protocol: tcp
+    ports: [22, 443, 8006]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: Blog issues #722, #725 and #732. bastion1's legs are in router2's /28 of VLANs 101 and 102, so it reaches router1's /28s (switch1, pve1 to pve4) through router2 and then router1; to router2's own /28 it is on-link and crosses neither forward chain.
+
   - name: bastion-to-untrusted-devices
     description: router3, ap2 and switch3 over the routed path; nothing back except replies
     src: Bastions
@@ -835,6 +914,17 @@ rules:
     action: accept
     chain: forward
     applies_to: [router2]
+
+  - name: bastion-to-openbao
+    description: The Toolbox's tunnel through bastion1 to OpenBao's API during the Seed run
+    src: Bastions
+    dst: Secrets
+    protocol: tcp
+    ports: [8200]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+    notes: Blog issues #723 and #730. The workstation's Toolbox reaches bao1.mikewashere.lan:8200 through an ssh -L tunnel via bastion1, the name mapped to 127.0.0.1 (#700); nothing in Users reaches Secrets directly.
 
   # ==========================================================================
   # Monitoring and logs

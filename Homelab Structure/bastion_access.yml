@@ -14,7 +14,12 @@
 #     Management.
 #   - With a step-ca SSH certificate of about 16 hours, issued after SSO, to a
 #     separate admin account that requires a YubiKey. Daily logins are
-#     ordinary domain users and never get here.
+#     ordinary domain users and never get here. step-ca's OIDC client in
+#     Authelia allows only the AD group ssh-admins, with two-factor; the
+#     admin's AD mail is <user>@<domain>, so the certificate's principal is
+#     the admin account name (issue #727). Until Authelia exists, an X5C
+#     provisioner signed for with a PIV key on the admin YubiKey issues the
+#     certificate instead (issue #720).
 #   - Onward with the same certificate (ProxyJump, or a tunnel to a web
 #     interface). There is no bastion service key: targets trust the step-ca
 #     user CA, not the bastion.
@@ -61,7 +66,7 @@ identity_groups:
 
 identities:
   - user: mike-admin
-    auth: step-ca SSH certificate after SSO, YubiKey required
+    auth: step-ca SSH certificate after SSO (AD group ssh-admins), YubiKey required
     break_glass_key_ref: ~/.ssh/id_ed25519_sk_breakglass.pub
     member_of: [senior_admins]
     authorized_targets: []
