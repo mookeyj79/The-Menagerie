@@ -151,6 +151,10 @@ vlans:
     zone: Central-Servers
     state: planned
     id: 16
+    notes: |
+      Test slots (issue #713), never given to a host: 192.168.16.29 for the throwaway TrueNAS VM
+      of Steps 3.1 and 3.2, 192.168.16.30 for Step 3.2's client VM. Reached from the workstation
+      through bastion1; the VMs are deleted at the end of each Step, freeing the slots.
     subnets:
       - cidr: 192.168.16.0/27
         gateway_host: router2

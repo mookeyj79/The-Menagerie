@@ -119,6 +119,9 @@ systems:
       - name: main
         ip_address: 10.0.3.3
         vlan: power-management
+    notes: |
+      Outlets (issue #715): file1's two power supplies each on a switched outlet, so nut1 powers
+      file1 on by switching them on; outlet numbers not confirmed.
     os: AOS 3.9.4
     owned: true
     role: pdu
@@ -448,6 +451,9 @@ systems:
       older ones. ZFS snapshots and the B2 retention (issue #72) apply on top.
       Data disks: 8x 10 TB in RAIDZ2. Boot on the ~256 GB SSD; the 128 GB SSD is a SLOG.
       NICs: 2x 10G SFP+ plus the original Ethernet NICs (count not confirmed).
+      Power (issue #715): both power supplies on switched pdu1 outlets and the BIOS set to power on
+      when AC returns, so nut1 starts file1 through pdu1. file1 shuts itself down on its own UPS
+      service timer, set so it is down before nut1 stops dc1; nut1 has no path into it.
     os: TrueNAS Scale 25
     owned: true
     resources:
