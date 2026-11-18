@@ -121,7 +121,7 @@ rules:
 
   - name: client-zone-dhcp
     description: DHCP from each client zone's gateway router
-    src: [Users, Guest, Devices, Smart_Home, Surveillance]
+    src: [Users, Guest, Devices, Fabrication, Smart_Home, Surveillance]
     protocol: udp
     ports: [67]
     action: accept
