@@ -234,9 +234,17 @@ vlans:
     zone: Devices
     state: planned
     id: 23
-    notes: No internet. Only Users reach it.
+    notes: |
+      No internet. Only Users reach it. DHCP serves static leases only (RouterOS
+      address-pool=static-only): each named machine that can't hold a fixed address gets its
+      systems.yml address by its MAC address, and unknown devices get nothing (blog issue #656).
+      The MAC addresses are not recorded here; they go in router2's lease list.
     subnets:
       - cidr: 192.168.23.0/27
+        dhcp:
+          enabled: true
+          lease_time: null  # not decided; RouterOS's default applies
+          pool: null        # static-only: no pool
         gateway_host: router2
         gateway_interface: VLAN23
 
