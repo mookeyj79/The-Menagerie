@@ -1213,7 +1213,11 @@ rules:
     action: accept
     chain: input
     applies_to: [router3]
-    notes: Arrives over the routed path through router1; may need a local account and older algorithms.
+    notes: |
+      Issue #680. Arrives over the routed path through router1 on GigabitEthernet0/0.302, so the
+      RetroNet ACL never sees it; enforced instead by an access-class on router3's vty lines, which
+      holds whichever interface SSH arrives on. IOS 15.1's access-class takes a numbered access list
+      only. May need a local account and older algorithms.
 
   - name: router3-retronet-dhcp
     src: RetroNet
