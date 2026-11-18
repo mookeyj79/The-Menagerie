@@ -284,7 +284,9 @@ vlans:
       resolvers, and file1's restic REST server. Users never reach the zone directly: the
       internal proxy and ha1 are the only ways in, plus bastion and runner SSH to nvr1. Cameras
       use IP addresses, not DNS. Ports untagged in VLAN 25 on switch2's second stack unit. Not
-      mirrored (video volume).
+      mirrored (video volume). The DHCP server hands out no DNS server, since the cameras and
+      the NVR don't need names (blog issue #698; RouterOS dns-none=yes, or it passes on
+      router2's own).
     subnets:
       - cidr: 192.168.25.0/27
         dhcp:
