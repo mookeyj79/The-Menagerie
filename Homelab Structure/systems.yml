@@ -532,7 +532,7 @@ systems:
     description: DMZ Proxmox hypervisor; carries the DMZ K3s node
     hardware: Custom build
     interfaces:
-      - name: eth0.102
+      - name: vmbr0
         ip_address: 10.0.2.2
         vlan: server-management
     notes: 1 TB SSD, 1x 1G Ethernet. Cables to switch1 only, like every DMZ server (blog #670). May be replaced by an M720Q someday.
@@ -610,7 +610,7 @@ systems:
     description: Internal Proxmox hypervisor; carries Central-Servers, DevOps, Security, App-Servers, Smart Home and the Users gateway
     hardware: Custom build
     interfaces:
-      - name: eth0.102
+      - name: vmbr0
         ip_address: 10.0.2.18
         vlan: server-management
       - name: mirror
