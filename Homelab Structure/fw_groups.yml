@@ -563,10 +563,29 @@ groups:
         comment: Docker Hub image downloads (PeaNUT)
       - fqdn: ghcr.io
         comment: Frigate's image registry, for the NVR host (issue #98)
+      - fqdn: pkgs.tailscale.com
+        comment: Tailscale's apt repository, for bastion1 (Step 1.11, Blog issue #726)
+      - fqdn: download.proxmox.com
+        comment: Proxmox VE no-subscription repository, for pve5 (Step 2.1, Blog issue #734)
+      - fqdn: cloud.debian.org
+        comment: Debian 13 cloud image for pve5's template (Step 2.1, Blog issue #734)
+      - fqdn: cdn.jsdelivr.net
+        comment: HaGeZi's Multi RPZ blocklist, fetched by dns1's Unbound (Step 2.3, Blog issue #734)
+      - fqdn: packages.smallstep.com
+        comment: Smallstep's apt repository, step-ca and step-cli for ca1 (Step 2.5, Blog issue #734)
+      - fqdn: github.com
+        comment: TrueNAS apps catalogue (github.com/truenas/apps), for the Step 3.2 test VM and file1 (Step 3.2, Blog issue #712)
+      - fqdn: telemetry.sys.truenas.net
+        comment: TrueNAS apps catalogue sync's stats file (Step 3.2, Blog issue #712)
+      - fqdn: update.ixsystems.com
+        comment: TrueNAS 25 update server, for file1 (Step 3.5, Blog issue #712)
     notes: |
       A RouterOS address list built from DNS names (issue #64). Each service
-      adds its domains when it is built. Backblaze B2's endpoint is named for
-      the bucket's region, so it is added when the bucket is made.
+      adds its domains when it is built; each comment names the Step that
+      adds it. OpenBao and its kms-pkcs11 plugin add none: they are
+      downloaded on the workstation and copied to bao1 (Blog issue #724).
+      Backblaze B2's S3 endpoint, s3.<region>.backblazeb2.com, is named for
+      the bucket's region, so Step 3.15 adds it when the bucket is made.
 
   - name: Cloudflare_Tunnel
     category: role
