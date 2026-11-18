@@ -349,6 +349,28 @@ rules:
     chain: forward
     applies_to: [router1, router2]
 
+  - name: management-to-public-resolvers-tcp
+    description: Temporary; Management resolves through Quad9 until the house's resolvers exist
+    src: [Hardware_Management, Server_Management, Power_Management]
+    dst: Public_Resolvers
+    protocol: tcp
+    ports: [53]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: "Blog issue #645. Temporary: Step 1.10 applies it so bastion1 and nut1 still resolve names (and take updates through named-outbound) once default deny is on. Step 2.3 removes it when Management moves to dns1."
+
+  - name: management-to-public-resolvers-udp
+    description: Temporary; Management resolves through Quad9 until the house's resolvers exist
+    src: [Hardware_Management, Server_Management, Power_Management]
+    dst: Public_Resolvers
+    protocol: udp
+    ports: [53]
+    action: accept
+    chain: forward
+    applies_to: [router1, router2]
+    notes: Blog issue #645. Temporary, as management-to-public-resolvers-tcp; Step 2.3 removes it.
+
   - name: dns-bypass-drop-tcp
     description: Plain DNS and DNS over TLS to the internet are dropped for zones that use Unbound
     src: [Users, App_Servers, DevOps, Security, Smart_Home, Devices, NVR, Central_Servers]
