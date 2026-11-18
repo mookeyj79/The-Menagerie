@@ -806,6 +806,17 @@ rules:
     chain: forward
     applies_to: [router1, router2]
 
+  - name: bastion-to-router1-management
+    description: SSH, HTTPS (WebFig) and the API over TLS on router1's Management addresses, routed through router2
+    src: Bastions
+    dst: Router1_Management
+    protocol: tcp
+    ports: [22, 443, 8729]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+    notes: Issue #694. bastion1's legs are in router2's half of VLANs 101 and 102, so router2 forwards this traffic; router1's input rules (admin-to-router-services, admin-router-api) then accept it.
+
   - name: bastion-to-untrusted-devices
     description: router3, ap2 and switch3 over the routed path; nothing back except replies
     src: Bastions

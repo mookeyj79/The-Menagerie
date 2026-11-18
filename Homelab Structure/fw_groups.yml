@@ -414,6 +414,19 @@ groups:
     derive_from:
       role: router
 
+  - name: Router1_Management
+    category: role
+    description: router1's Management addresses, which bastion1 reaches through router2
+    members:
+      - host: router1
+        interface: VLAN101
+      - host: router1
+        interface: VLAN102
+    notes: |
+      Blog issue #694. bastion1's legs sit in router2's half of each
+      Management /28, so its traffic to router1 crosses router2's forward
+      chain.
+
   - name: Switches
     category: role
     description: The ICX switches snmp_exporter polls
