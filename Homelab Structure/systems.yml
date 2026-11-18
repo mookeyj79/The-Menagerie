@@ -166,6 +166,9 @@ systems:
       - name: management
         ip_address: 192.168.5.4
         vlan: retronet
+    notes: >-
+      Bought in Step 1.8 (blog issue #653): nothing carries VLAN 5 before it. Carries RetroNet:
+      router3's GigabitEthernet1/0 on a trunk, ap2 and RetroNet's wired clients untagged.
     os: OpenWrt 25
     owned: false
     role: switch

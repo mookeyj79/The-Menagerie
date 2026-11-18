@@ -92,3 +92,21 @@ links:
     confirmed: false
     state: planned
     notes: pve1's 10G SFP+ NIC, planned and not owned. Licensed SFP+ port on the second stack unit.
+
+  # RetroNet (blog issue #653): switch3, bought in Step 1.8, carries VLAN 5:
+  # router3, ap2 and RetroNet's wired clients, which take its other ports untagged.
+  - a: { host: router3, port: GigabitEthernet1/0 }
+    b: { host: switch3, port: null }
+    medium: direct
+    vlans: [retronet]
+    confirmed: false
+    state: planned
+    notes: Trunk, VLAN 5 tagged to router3's GigabitEthernet1/0.5. Step 1.8 cables it.
+
+  - a: { host: switch3, port: null }
+    b: { host: ap2, port: null }
+    medium: direct
+    vlans: [retronet]
+    confirmed: false
+    state: planned
+    notes: ap2's uplink in one of its LAN ports, untagged in VLAN 5. Step 1.8 cables it.
