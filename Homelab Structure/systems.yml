@@ -132,7 +132,7 @@ systems:
       - name: management
         ip_address: 10.0.1.2
         vlan: hardware-management
-    notes: A PoE model (owner, 2026-11-10).
+    notes: A PoE model (owner, 2026-11-10). The DMZ servers (pve1 to pve4) plug in here only (blog #670).
     os: FastIron OS 08.0.30u
     owned: true
     role: switch
@@ -532,7 +532,7 @@ systems:
       - name: eth0.102
         ip_address: 10.0.2.2
         vlan: server-management
-    notes: 1 TB SSD, 1x 1G Ethernet; a 10G SFP+ NIC is planned, not owned. May be replaced by an M720Q someday.
+    notes: 1 TB SSD, 1x 1G Ethernet. Cables to switch1 only, like every DMZ server (blog #670). May be replaced by an M720Q someday.
     os: Proxmox VE 9
     owned: true
     resources:
