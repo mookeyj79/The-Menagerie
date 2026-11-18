@@ -238,12 +238,14 @@ vlans:
       No internet. Only Users reach it. DHCP serves static leases only (RouterOS
       address-pool=static-only): each named machine that can't hold a fixed address gets its
       systems.yml address by its MAC address, and unknown devices get nothing (blog issue #656).
-      The MAC addresses are not recorded here; they go in router2's lease list.
+      The MAC addresses are not recorded here; they go in router2's lease list. The DHCP server
+      hands out no DNS server, since the machines only need the LAN (blog issue #678; RouterOS
+      dns-none=yes, or it passes on router2's own). Lease time is 1 day (blog issue #679).
     subnets:
       - cidr: 192.168.23.0/27
         dhcp:
           enabled: true
-          lease_time: null  # not decided; RouterOS's default applies
+          lease_time: 24h
           pool: null        # static-only: no pool
         gateway_host: router2
         gateway_interface: VLAN23
