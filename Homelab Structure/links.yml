@@ -10,7 +10,8 @@
 #   a, b      : each end, { host, port }. host is a systems.yml hostname. port
 #               is the physical port, or null if not yet confirmed.
 #   medium    : direct (a cable between the two ends) | switched
-#   vlans     : optional list of vlans.yml names tagged on this link
+#   vlans     : optional list of vlans.yml names carried on this link;
+#               notes name any that runs untagged
 #   confirmed : true if the owner has confirmed this link exists as described
 #   state     : optional; present (default) | planned | decommissioned
 #   notes     : optional
@@ -81,10 +82,10 @@ links:
   - a: { host: switch2, port: 1/2/4 }
     b: { host: pve5, port: null }
     medium: direct
-    vlans: [storage]
+    vlans: [server-management, central-servers, devops, security, app-servers, smart-home, users, storage]
     confirmed: false
     state: planned
-    notes: pve5's 10G SFP+. Licensed SFP+ port on the first stack unit.
+    notes: pve5's 10G SFP+ trunk (blog #733), VLAN 102 untagged for pve5's own address on vmbr0, the VM zone VLANs and Storage tagged. Licensed SFP+ port on the first stack unit; its licence is loaded before Step 2.1.
 
   # RetroNet (blog issue #653): switch3, bought in Step 1.8, carries VLAN 5:
   # router3, ap2 and RetroNet's wired clients, which take its other ports untagged.

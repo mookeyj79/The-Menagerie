@@ -406,7 +406,7 @@ groups:
     description: pve5's Proxmox API, which NUT uses to start and stop VMs
     members:
       - host: pve5
-        interface: eth0.102
+        interface: vmbr0
 
   - name: Routers
     category: role
