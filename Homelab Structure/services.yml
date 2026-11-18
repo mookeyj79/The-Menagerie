@@ -126,6 +126,9 @@ services:
     stepca: true
     sso: false
     backup: samba-tool domain backup
+  notes: |
+    Issue #600. Provisioned with Samba's internal DNS server
+    (`--dns-backend=SAMBA_INTERNAL`); dns1 forwards ad.mikewashere.lan to it.
 - name: file-server
   description: TrueNAS SMB and NFS; homes, library and backup shares
   state: planned
