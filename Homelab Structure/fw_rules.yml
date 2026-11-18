@@ -836,6 +836,17 @@ rules:
     chain: forward
     applies_to: [router2]
 
+  - name: bastion-to-openbao
+    description: The Toolbox's tunnel through bastion1 to OpenBao's API during the Seed run
+    src: Bastions
+    dst: Secrets
+    protocol: tcp
+    ports: [8200]
+    action: accept
+    chain: forward
+    applies_to: [router2]
+    notes: Blog issues #723 and #730. The workstation's Toolbox reaches bao1.mikewashere.lan:8200 through an ssh -L tunnel via bastion1, the name mapped to 127.0.0.1 (#700); nothing in Users reaches Secrets directly.
+
   # ==========================================================================
   # Monitoring and logs
   # ==========================================================================
