@@ -137,6 +137,16 @@ rules:
     chain: input
     applies_to: [router1, router2]
 
+  - name: admin-router-api
+    description: RouterOS API over TLS from the bastion, so the Toolbox reaches it through an ssh -L tunnel
+    src: Bastions
+    protocol: tcp
+    ports: [8729]
+    action: accept
+    chain: input
+    applies_to: [router1, router2]
+    notes: Issue #687. Keeps the routers bastion only; until Phase 5's runners exist this is the only API path, and it stays for admin runs after.
+
   - name: devops-router-api
     description: RouterOS API over TLS for the pipeline
     src: Runners
