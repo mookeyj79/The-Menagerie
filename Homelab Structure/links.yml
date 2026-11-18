@@ -69,6 +69,7 @@ links:
   # Storage VLAN 26 (blog issue #613) on switch2's licensed SFP+ ports. Ports
   # 1 and 3 of each ICX 6450 are its default stacking ports and run at 10G
   # without a licence; ports 2 and 4 need the ICX6450-2X10G-LIC-POD licence.
+  # Only file1 and pve5 join VLAN 26: DMZ hosts never cable to switch2 (blog #670).
   - a: { host: switch2, port: 1/2/2 }
     b: { host: file1, port: null }
     medium: direct
@@ -84,14 +85,6 @@ links:
     confirmed: false
     state: planned
     notes: pve5's 10G SFP+. Licensed SFP+ port on the first stack unit.
-
-  - a: { host: switch2, port: 2/2/2 }
-    b: { host: pve1, port: null }
-    medium: direct
-    vlans: [storage]
-    confirmed: false
-    state: planned
-    notes: pve1's 10G SFP+ NIC, planned and not owned. Licensed SFP+ port on the second stack unit.
 
   # RetroNet (blog issue #653): switch3, bought in Step 1.8, carries VLAN 5:
   # router3, ap2 and RetroNet's wired clients, which take its other ports untagged.
