@@ -519,7 +519,7 @@ groups:
 
   - name: Public_Resolvers
     category: role
-    description: Quad9 and Cloudflare; the only DNS Guest, RetroNet and DMZ reach
+    description: Quad9 and Cloudflare; the only DNS Guest, RetroNet and DMZ reach, and Management until Step 2.3
     members:
       - cidr: 9.9.9.9
         comment: Quad9
