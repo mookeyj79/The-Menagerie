@@ -1,0 +1,61 @@
+# =====================================================================================================
+# site.example.yml - what only the deployer supplies
+# =====================================================================================================
+# Copy to site.yml (gitignored) in this directory and replace every value. The design itself (which
+# VMs exist, their addresses, VLANs and resources) is in "Homelab Structure/systems.yml" and
+# vlans.yml; this file holds only what differs from one site to the next. Both roots,
+# pve-internal/ and pve-dmz/, read it. See docs/deploy.md.
+#
+# Every value below is a placeholder: RFC 5737 documentation addresses and example.lan.
+# =====================================================================================================
+
+# Your OpenBao server. Terraform reads each cluster's Proxmox API token from it (see token_path).
+# Until bao1 is up, run with use_bao = false and pass the token in (docs/deploy.md).
+openbao:
+  address: https://192.0.2.20:8200     # scheme, host and port of the OpenBao API
+
+# Default DNS settings for every VM's cloud-init. A cluster can override them with its own dns block.
+dns:
+  nameservers: [192.0.2.53]            # resolvers the VMs use
+  search_domain: example.lan           # DNS search domain
+
+# One entry per Proxmox cluster, keyed by its group name in systems.yml. The clusters are never
+# joined, so each has its own API endpoint and token.
+clusters:
+  pve-internal:
+    api_url: https://192.0.2.10:8006   # Proxmox API with scheme and port, without /api2/json
+    bridge: vmbr0                      # VLAN-aware bridge the VM NICs attach to; tags come from vlans.yml
+    cicustom: vendor=local:snippets/cloudinit-default.yaml  # cloud-init snippet (storage:snippets/file)
+    nodes:                             # systems.yml host -> Proxmox node name it runs on
+      pve5: node-c1
+      pve6: node-c2
+      pve7: node-c3
+    storage: local-lvm                 # storage pool for the VM disk and cloud-init drive
+    template: debian-13-cloud          # cloud-init template to clone, present on each node
+    tls_insecure: false                # true only if the API uses a self-signed certificate
+    token_path: secret/proxmox/pve-internal/terraform  # OpenBao KV path with token_id and token_secret
+    vmid_base: 0                       # vmid = vmid_base + 1000 * VLAN id + last octet of the first address
+
+  pve-dmz:
+    api_url: https://192.0.2.11:8006   # Proxmox API with scheme and port, without /api2/json
+    bridge: vmbr0                      # VLAN-aware bridge the VM NICs attach to
+    cicustom: vendor=local:snippets/cloudinit-default.yaml  # cloud-init snippet (storage:snippets/file)
+    dns:                               # optional; overrides the top-level dns for this cluster
+      nameservers: [198.51.100.53]     # e.g. public resolvers: the DMZ has no path inside
+    nodes:                             # systems.yml host -> Proxmox node name
+      pve1: node-d1
+      pve2: node-d2
+      pve3: node-d3
+      pve4: node-d4
+    storage: local-lvm                 # storage pool for the VM disk and cloud-init drive
+    template: debian-13-cloud          # cloud-init template to clone
+    tls_insecure: false                # true only if the API uses a self-signed certificate
+    token_path: secret/proxmox/pve-dmz/terraform  # OpenBao KV path with token_id and token_secret
+    vmid_base: 0                       # as above; the clusters are separate, so ids may overlap
+
+# Optional per-VM overrides, keyed by hostname. Leave empty ({}) if none.
+vms:
+  ha1:
+    template: haos-template            # a VM that isn't the default cloud-init image
+  # dns1:
+  #   vmid: 1234                       # pin a vmid instead of the computed one
